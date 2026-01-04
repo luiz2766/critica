@@ -1,0 +1,5 @@
+{
+  "name": "Analytics PDF Dashboard",
+  "description": "A sophisticated analytics dashboard for selecting, processing, and visualizing data from PDF reports stored in Google Drive, featuring real-time filtering and detailed performance insights.",
+  "requestFramePermissions": []
+}
