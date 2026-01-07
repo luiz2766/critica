@@ -8,7 +8,7 @@ import Footer from './components/Footer';
 import { AppState, Report, Product, OrderOrigins } from './types';
 import { DriveService } from './services/driveService';
 import { MOCK_REPORTS } from './constants';
-import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
+import { GoogleGenAI } from "@google/genai";
 
 const App: React.FC = () => {
   const [state, setState] = useState<AppState>({
@@ -43,21 +43,20 @@ const App: React.FC = () => {
     const base64Data = await fileToBase64(file);
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     
-    const response: GenerateContentResponse = await ai.models.generateContent({
+    // Usando tipagem genérica para evitar erros de importação de classes/interfaces específicas do SDK
+    const response: any = await ai.models.generateContent({
       model: 'gemini-3-pro-preview',
       contents: {
         parts: [
-          { text: `AJA COMO UM ENGENHEIRO DE EXTRAÇÃO DE DADOS SEMÂNTICOS.
-1. Localize o bloco 'RESUMO FINAL' no PDF. 
-2. Retorne as linhas de itens EXATAMENTE como aparecem, mantendo a relação entre Descrição, Referência e Valores.
-3. Não use tabelas Markdown. Retorne texto puro.
-4. Identifique as origens dos pedidos:
-   - "Origem: R = SFA via portal"
-   - "Origem: G = Pedido Heishop (B2B)"
+          { text: `Extraia o 'RESUMO FINAL' deste PDF. 
+Retorne as linhas brutas preservando a ordem: Descrição, Referência, Caixa/Unid, Valor Total, Preço Médio, Un Volume.
+Localize as quantidades de origens:
+- "Origem: R = SFA via portal"
+- "Origem: G = Pedido Heishop (B2B)"
 
-FORMATO OBRIGATÓRIO DE RESPOSTA:
+FORMATO:
 [TABELA_INI]
-(dados brutos aqui)
+(dados)
 [TABELA_FIM]
 SFA_COUNT: (total)
 HEISHOP_COUNT: (total)` },
@@ -74,22 +73,16 @@ HEISHOP_COUNT: (total)` },
     let sfa = 0;
     let b2b = 0;
 
-    lines.forEach(line => {
+    lines.forEach((line: string) => {
       if (line.includes('[TABELA_INI]')) { inTable = true; return; }
       if (line.includes('[TABELA_FIM]')) { inTable = false; return; }
-      if (inTable) {
-        tableLines.push(line);
-      } else {
+      if (inTable) tableLines.push(line);
+      else {
         const trimmed = line.trim();
         if (trimmed.startsWith('SFA_COUNT:')) sfa = parseInt(trimmed.split(':')[1]) || 0;
         if (trimmed.startsWith('HEISHOP_COUNT:')) b2b = parseInt(trimmed.split(':')[1]) || 0;
       }
     });
-
-    if (sfa === 0 && b2b === 0) {
-      sfa = (text.match(/Origem: R = SFA via portal/g) || []).length;
-      b2b = (text.match(/Origem: G = Pedido Heishop \(B2B\)/g) || []).length;
-    }
 
     return { 
       tableLines, 
@@ -97,55 +90,26 @@ HEISHOP_COUNT: (total)` },
     };
   };
 
-  const extractResumoLines = (allLines: string[]): string[] => {
-    return allLines.filter(l => {
-        const t = l.trim();
-        if (t.length < 40) return false;
-        if (t.toUpperCase().includes("DESCRIÇÃO") || t.toUpperCase().includes("VALOR TOTAL")) return false;
-        // Validação semântica: A linha deve conter uma Referência válida (CX-24, EB-12, UN-1, etc)
-        return /(CX|EB|UN|LN)\s*-\s*\d+/.test(t.toUpperCase()) || /^(CERV|REFR|AGUA|BBMI|CHOP|DRAFT)/.test(t.toUpperCase());
-    });
-  };
-
-  const parseRawLine = (line: string): Product => {
-    // LÓGICA DE PARSING DELIMITADA (RESOLVE O PROBLEMA DE COORDENADAS FIXAS)
+  const parseRawLine = (line: string): Product | null => {
     const normalized = line.trim();
-    
-    // 1. Localizar REFERÊNCIA (CX - 24, EB - 12, etc)
-    const refMatch = normalized.match(/(CX|EB|UN|LN|SHR)\s*-\s*\d+/i);
-    const refIndex = refMatch ? normalized.indexOf(refMatch[0]) : -1;
-    
-    // 2. Extrair descrição (Tudo antes da referência)
-    const descricao = refIndex !== -1 ? normalized.substring(0, refIndex).trim() : "DESCRIÇÃO NÃO IDENTIFICADA";
-    
-    // 3. Extrair os valores numéricos finais (Caixa/Unid, Valor Total, Preço Médio, Un Volume)
-    // Procuramos por grupos de números e moedas no final da linha
-    // Padrão: [VALOR] [VALOR] [VALOR] [VALOR]
-    const numericPart = normalized.substring(refIndex !== -1 ? refIndex : 0);
-    const parts = numericPart.split(/\s{2,}/).filter(p => p.trim().length > 0);
-    
-    // Fallback caso a quebra por múltiplos espaços falhe: usar regex para capturar os 4 números finais
-    const numericMatches = normalized.match(/(\d+)\s+(?:R\$\s*)?([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)$/);
+    if (normalized.length < 30) return null;
 
-    if (numericMatches) {
-      return {
-        descricao,
-        referencia: refMatch ? refMatch[0].trim() : "N/A",
-        caixa_unid: numericMatches[1],
-        valor_total: numericMatches[2],
-        preco_medio: numericMatches[3],
-        un_volume: numericMatches[4]
-      };
-    }
+    // Âncora: Referência (CX-24, EB-12, etc)
+    const refMatch = normalized.match(/(CX|EB|UN|LN|SHR|BAR|LAT|LATAS)\s*-\s*\d+/i);
+    if (!refMatch) return null;
 
-    // Fallback secundário usando as partes splitadas se o regex falhar
+    const refIndex = normalized.indexOf(refMatch[0]);
+    const descricao = normalized.substring(0, refIndex).trim();
+    const afterRef = normalized.substring(refIndex + refMatch[0].length).trim();
+    const parts = afterRef.split(/\s+/).filter(p => p.length > 0);
+
     return {
       descricao,
-      referencia: parts[0] || "N/A",
-      caixa_unid: parts[1] || "0",
-      valor_total: parts[2] || "0,00",
-      preco_medio: parts[3] || "0,00",
-      un_volume: parts[4] || "0,000"
+      referencia: refMatch[0],
+      caixa_unid: parts[0] || "0",
+      valor_total: parts[1] || "0,00",
+      preco_medio: parts[2] || "0,00",
+      un_volume: parts[3] || "0,000"
     };
   };
 
@@ -153,37 +117,28 @@ HEISHOP_COUNT: (total)` },
     const report = reports.find(r => r.id === reportId);
     if (!report) return;
 
-    setState(prev => ({ ...prev, isLoading: true, error: null, selectedReportId: null }));
+    setState(prev => ({ ...prev, isLoading: true, error: null }));
 
     try {
-      let products = report.products;
+      let products = report.products || [];
       let orderOrigins = report.orderOrigins;
 
-      if (!products || products.length === 0 || !orderOrigins) {
-        let fileBlob: Blob;
-        if (report.source === 'drive') {
-          fileBlob = await DriveService.downloadFile(report.id);
-        } else {
-          fileBlob = report.file as File;
-        }
-        
+      if (products.length === 0) {
+        const fileBlob = report.source === 'drive' 
+          ? await DriveService.downloadFile(report.id) 
+          : report.file as File;
+          
         const { tableLines, origins } = await extractDataWithGemini(fileBlob);
-        const filteredLines = extractResumoLines(tableLines);
-        products = filteredLines.map(l => parseRawLine(l)).filter(p => p.descricao !== "DESCRIÇÃO NÃO IDENTIFICADA");
+        products = tableLines.map(parseRawLine).filter((p): p is Product => p !== null);
         orderOrigins = origins;
         
         setReports(prev => prev.map(r => r.id === reportId ? { ...r, products, orderOrigins } : r));
       }
 
-      setState(prev => ({
-        ...prev,
-        selectedReportId: reportId,
-        view: 'dashboard',
-        isLoading: false
-      }));
+      setState(prev => ({ ...prev, selectedReportId: reportId, view: 'dashboard', isLoading: false }));
     } catch (err: any) {
-      console.error("Erro no parsing:", err);
-      setState(prev => ({ ...prev, isLoading: false, error: `Erro na extração semântica: ${err.message}` }));
+      console.error("Selection Error:", err);
+      setState(prev => ({ ...prev, isLoading: false, error: `Erro na análise do PDF: ${err.message}` }));
     }
   };
 
@@ -191,12 +146,11 @@ HEISHOP_COUNT: (total)` },
     const file = event.target.files?.[0];
     if (!file) return;
 
-    setState(prev => ({ ...prev, isLoading: true, error: null, selectedReportId: null }));
+    setState(prev => ({ ...prev, isLoading: true, error: null }));
 
     try {
       const { tableLines, origins } = await extractDataWithGemini(file);
-      const filteredLines = extractResumoLines(tableLines);
-      const summaryData = filteredLines.map(l => parseRawLine(l)).filter(p => p.descricao !== "DESCRIÇÃO NÃO IDENTIFICADA");
+      const products = tableLines.map(parseRawLine).filter((p): p is Product => p !== null);
 
       const fileId = `local_${Date.now()}`;
       const newReport: Report = {
@@ -208,7 +162,7 @@ HEISHOP_COUNT: (total)` },
         source: 'local',
         file: file,
         seller: { id: 'u1', name: state.currentUser.name, avatar: state.currentUser.avatar, email: state.currentUser.email },
-        products: summaryData,
+        products,
         orderOrigins: origins
       };
 
@@ -223,15 +177,14 @@ HEISHOP_COUNT: (total)` },
   const syncDrive = async () => {
     setState(prev => ({ ...prev, isLoading: true, error: null }));
     try {
-      if (!isAuthorized) {
-        await DriveService.authorize();
-        setIsAuthorized(true);
-      }
       const driveFiles = await DriveService.listFiles();
       setReports(driveFiles);
-    } catch (e: any) {
-      setReports(MOCK_REPORTS);
       setIsAuthorized(true);
+    } catch (e: any) {
+      console.error('Sync Error:', e);
+      // Fallback para mock apenas se for erro de autorização cancelada ou similar
+      if (reports.length === 0) setReports(MOCK_REPORTS);
+      setState(prev => ({ ...prev, error: `Erro na sincronização: ${e.message}` }));
     } finally {
       setState(prev => ({ ...prev, isLoading: false }));
     }
@@ -242,8 +195,15 @@ HEISHOP_COUNT: (total)` },
     document.documentElement.classList.toggle('dark', state.isDarkMode);
   }, [state.isDarkMode]);
 
-  const filteredReports = useMemo(() => reports.filter(r => r.name.toLowerCase().includes(state.searchQuery.toLowerCase())), [reports, state.searchQuery]);
-  const selectedReport = useMemo(() => reports.find(r => r.id === state.selectedReportId) || null, [reports, state.selectedReportId]);
+  const filteredReports = useMemo(() => 
+    reports.filter(r => r.name.toLowerCase().includes(state.searchQuery.toLowerCase())), 
+    [reports, state.searchQuery]
+  );
+  
+  const selectedReport = useMemo(() => 
+    reports.find(r => r.id === state.selectedReportId) || null, 
+    [reports, state.selectedReportId]
+  );
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -256,45 +216,64 @@ HEISHOP_COUNT: (total)` },
       />
       <main className="flex-1 w-full max-w-7xl mx-auto px-4 py-8">
         {state.error && (
-          <div className="mb-6 p-4 bg-red-50 dark:bg-red-900/20 border-2 border-red-500 rounded-xl text-red-700 dark:text-red-400 font-black text-xs uppercase tracking-widest flex items-center gap-3 shadow-sm">
+          <div className="mb-6 p-4 bg-red-50 dark:bg-red-900/20 border-2 border-red-500 rounded-xl text-red-700 dark:text-red-400 font-black text-xs uppercase tracking-widest flex items-center gap-3 shadow-sm animate-in fade-in duration-300">
             <span className="material-symbols-outlined">report_problem</span>
             {state.error}
+            <button onClick={() => setState(p => ({...p, error: null}))} className="ml-auto hover:scale-110 transition-transform">
+              <span className="material-symbols-outlined text-sm">close</span>
+            </button>
           </div>
         )}
 
         {state.isLoading && (
-          <div className="flex flex-col items-center justify-center py-40">
+          <div className="flex flex-col items-center justify-center py-40 animate-in fade-in duration-500">
             <div className="size-16 border-4 border-primary border-t-transparent rounded-full animate-spin mb-6"></div>
-            <p className="font-black text-primary tracking-widest uppercase text-xs">Sincronizando Resumo Determinístico do PDF...</p>
+            <p className="font-black text-primary tracking-widest uppercase text-xs">Comunicando com Google Drive & Gemini AI...</p>
           </div>
         )}
 
         {!state.isLoading && state.view === 'list' && (
           <div className="space-y-8 animate-in slide-in-from-bottom-4 duration-500">
-            <div className="flex justify-between items-end">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
               <div>
                 <h1 className="text-3xl font-black text-text-main-light dark:text-text-main-dark">Analytics Dashboard</h1>
-                <p className="text-text-secondary-light italic">Poder de análise impulsionado por Gemini AI Engine.</p>
+                <p className="text-text-secondary-light italic">Selecione um relatório PDF para iniciar a análise determinística.</p>
               </div>
-              <div className="flex gap-3">
+              <div className="flex flex-wrap gap-3">
                 <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept=".pdf" className="hidden" />
-                <button onClick={() => fileInputRef.current?.click()} className="px-6 py-3 bg-white dark:bg-surface-dark border border-border-light dark:border-border-dark rounded-xl font-bold flex items-center gap-2 hover:border-primary transition-all shadow-sm">
-                  <span className="material-symbols-outlined">upload_file</span> Importar PDF Real
+                <button 
+                  onClick={() => fileInputRef.current?.click()} 
+                  className="px-6 py-3 bg-white dark:bg-surface-dark border border-border-light dark:border-border-dark rounded-xl font-bold flex items-center gap-2 hover:border-primary hover:text-primary transition-all shadow-sm active:scale-95"
+                >
+                  <span className="material-symbols-outlined">upload_file</span> Local
                 </button>
-                <button onClick={syncDrive} className="px-6 py-3 bg-primary text-background-dark rounded-xl font-bold hover:scale-105 transition-transform">Sincronizar Drive</button>
+                <button 
+                  onClick={syncDrive} 
+                  className="px-6 py-3 bg-primary text-background-dark rounded-xl font-bold hover:scale-105 active:scale-95 transition-all shadow-lg flex items-center gap-2"
+                >
+                  <span className="material-symbols-outlined">sync</span> Sincronizar Drive
+                </button>
               </div>
             </div>
+            
+            <div className="relative">
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 material-symbols-outlined text-text-secondary-light">search</span>
+              <input 
+                type="text" 
+                placeholder="Filtrar por nome do relatório..."
+                value={state.searchQuery}
+                onChange={(e) => setState(p => ({...p, searchQuery: e.target.value}))}
+                className="w-full pl-12 pr-4 py-4 bg-white dark:bg-surface-dark border border-border-light dark:border-border-dark rounded-2xl focus:ring-2 focus:ring-primary focus:border-primary transition-all text-sm font-bold shadow-sm"
+              />
+            </div>
+
             <ReportList reports={filteredReports} onAnalyse={handleSelectReport} />
             <StatsGrid />
           </div>
         )}
 
         {!state.isLoading && state.view === 'dashboard' && selectedReport && (
-          <DashboardView 
-            key={`${selectedReport.id}-${selectedReport.products?.length || 0}`} 
-            report={selectedReport} 
-            onBack={() => setState(p => ({ ...p, view: 'list', selectedReportId: null }))} 
-          />
+          <DashboardView report={selectedReport} onBack={() => setState(p => ({ ...p, view: 'list', selectedReportId: null }))} />
         )}
       </main>
       <Footer />

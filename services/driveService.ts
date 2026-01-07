@@ -1,5 +1,5 @@
 
-import { Report, Product } from '../types';
+import { Report } from '../types';
 
 declare var google: any;
 
@@ -25,19 +25,26 @@ export class DriveService {
             scope: SCOPES,
             callback: (response: any) => {
               if (response.error) {
-                authPromiseReject?.(new Error(`Erro Google: ${response.error}`));
+                console.error('OAuth Error:', response.error);
+                authPromiseReject?.(new Error(`Erro Google Auth: ${response.error}`));
                 return;
               }
               accessToken = response.access_token;
-              authPromiseResolve?.(response.access_token);
+              if (authPromiseResolve) {
+                authPromiseResolve(response.access_token);
+                authPromiseResolve = null;
+                authPromiseReject = null;
+              }
             },
           });
+          console.log('Google Identity Services Initialized');
         } catch (e) {
           console.error('GIS Init Error:', e);
         }
       }
-    }, 200);
+    }, 500);
 
+    // Timeout de 10 segundos para desistir de carregar o script do Google
     setTimeout(() => clearInterval(checkGoogle), 10000);
   }
 
@@ -45,7 +52,15 @@ export class DriveService {
     return new Promise((resolve, reject) => {
       if (!tokenClient) {
         this.init();
-        reject(new Error('Serviço do Google ainda carregando...'));
+        // Dá uma pequena margem para o init tentar carregar antes de rejeitar
+        setTimeout(() => {
+          if (!tokenClient) reject(new Error('Serviço do Google ainda não está disponível. Recarregue a página.'));
+          else {
+            authPromiseResolve = resolve;
+            authPromiseReject = reject;
+            tokenClient.requestAccessToken({ prompt: 'select_account' });
+          }
+        }, 1000);
         return;
       }
       authPromiseResolve = resolve;
@@ -55,7 +70,7 @@ export class DriveService {
   }
 
   static async downloadFile(fileId: string): Promise<Blob> {
-    if (!accessToken) throw new Error('Acesso não autorizado ao Google Drive');
+    if (!accessToken) throw new Error('Sessão expirada ou não autorizada. Sincronize novamente.');
     
     const response = await fetch(
       `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
@@ -63,39 +78,56 @@ export class DriveService {
     );
 
     if (!response.ok) {
-      throw new Error('Falha ao baixar o arquivo para extração.');
+      throw new Error(`Erro ${response.status}: Não foi possível baixar o PDF para análise.`);
     }
     
     return await response.blob();
   }
 
   static async listFiles(): Promise<Report[]> {
-    if (!accessToken) throw new Error('Acesso não autorizado ao Google Drive');
+    if (!accessToken) {
+      // Tenta autorizar caso o token não exista
+      await this.authorize();
+    }
 
+    // Query para buscar PDFs na pasta específica
     const query = encodeURIComponent(`'${FOLDER_ID}' in parents and mimeType='application/pdf' and trashed=false`);
     const fields = encodeURIComponent('files(id,name,size,modifiedTime,webViewLink)');
     
     const response = await fetch(
-      `https://www.googleapis.com/drive/v3/files?q=${query}&fields=${fields}`,
+      `https://www.googleapis.com/drive/v3/files?q=${query}&fields=${fields}&orderBy=modifiedTime desc`,
       { headers: { 'Authorization': `Bearer ${accessToken}` } }
     );
 
     if (!response.ok) {
       const err = await response.json();
-      throw new Error(err.error?.message || 'Erro ao listar arquivos do Drive');
+      if (response.status === 401) {
+        accessToken = null; // Token expirado
+        return this.listFiles(); // Tenta re-autorizar
+      }
+      throw new Error(err.error?.message || 'Erro ao comunicar com Google Drive API');
     }
     
     const data = await response.json();
-    return data.files.map((file: any) => ({
+    return (data.files || []).map((file: any) => ({
       id: file.id,
       name: file.name,
       pdfUrl: file.webViewLink,
-      size: file.size ? `${(parseInt(file.size) / 1024 / 1024).toFixed(2)} MB` : 'N/A',
-      date: new Date(file.modifiedTime).toLocaleDateString('pt-BR'),
+      size: file.size ? `${(parseInt(file.size) / 1024 / 1024).toFixed(2)} MB` : 'Tamanho desconhecido',
+      date: new Date(file.modifiedTime).toLocaleDateString('pt-BR', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric'
+      }),
       status: 'ready' as const,
       source: 'drive' as const,
-      seller: { id: 'lh1', name: 'Luiz Henrique', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Luiz', email: 'luizhenrique2766@gmail.com' },
-      products: [] // Será preenchido sob demanda na seleção via Gemini
+      seller: { 
+        id: 'lh1', 
+        name: 'Luiz Henrique', 
+        avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Luiz', 
+        email: 'luizhenrique2766@gmail.com' 
+      },
+      products: [] 
     }));
   }
 }
