@@ -5,9 +5,10 @@ import ReportList from './components/ReportList';
 import DashboardView from './components/DashboardView';
 import StatsGrid from './components/StatsGrid';
 import Footer from './components/Footer';
-import { AppState, Report, Product } from './types';
+import { AppState, Report, Product, OrderOrigins } from './types';
 import { DriveService } from './services/driveService';
 import { MOCK_REPORTS } from './constants';
+import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
 
 const App: React.FC = () => {
   const [state, setState] = useState<AppState>({
@@ -28,114 +29,176 @@ const App: React.FC = () => {
   const [reports, setReports] = useState<Report[]>([]);
   const [isAuthorized, setIsAuthorized] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const activeFileRef = useRef<string | null>(null);
 
-  /**
-   * COORDENADAS X OTIMIZADAS (ISOLAMENTO TOTAL)
-   */
-  const COL_CONFIG = {
-    PRODUTO:     { start: 0,   end: 15  },
-    DESCRICAO:   { start: 15,  end: 58  },
-    REFERENCIA:  { start: 58,  end: 72  },
-    CAIXA_UNID:  { start: 72,  end: 90  },
-    VALOR_TOTAL: { start: 90,  end: 112 },
-    PRECO_MEDIO: { start: 112, end: 132 },
-    UN_VOLUME:   { start: 132, end: 160 }
+  const fileToBase64 = (file: File | Blob): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = () => resolve((reader.result as string).split(',')[1]);
+      reader.onerror = error => reject(error);
+    });
   };
 
-  const extractResumoLines = (allLines: string[]): string[] => {
-    const startIndex = allLines.findIndex(l => 
-      l.includes("PRODUTO") && l.includes("UN VOLUME")
-    );
-    if (startIndex === -1) return [];
-    return allLines.slice(startIndex + 1).filter(l => /^\s+\d{3}\/\d{3}/.test(l));
-  };
+  const extractDataWithGemini = async (file: File | Blob): Promise<{ tableLines: string[], origins: OrderOrigins }> => {
+    const base64Data = await fileToBase64(file);
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    
+    const response: GenerateContentResponse = await ai.models.generateContent({
+      model: 'gemini-3-pro-preview',
+      contents: {
+        parts: [
+          { text: `AJA COMO UM ENGENHEIRO DE EXTRAÇÃO DE DADOS SEMÂNTICOS.
+1. Localize o bloco 'RESUMO FINAL' no PDF. 
+2. Retorne as linhas de itens EXATAMENTE como aparecem, mantendo a relação entre Descrição, Referência e Valores.
+3. Não use tabelas Markdown. Retorne texto puro.
+4. Identifique as origens dos pedidos:
+   - "Origem: R = SFA via portal"
+   - "Origem: G = Pedido Heishop (B2B)"
 
-  const parseRawLine = (line: string): Product => {
-    const produto = line.slice(COL_CONFIG.PRODUTO.start, COL_CONFIG.PRODUTO.end).trim();
-    const descricao = line.slice(COL_CONFIG.DESCRICAO.start, COL_CONFIG.DESCRICAO.end).trim();
-    const referencia = line.slice(COL_CONFIG.REFERENCIA.start, COL_CONFIG.REFERENCIA.end).trim();
-    const caixa_unid = line.slice(COL_CONFIG.CAIXA_UNID.start, COL_CONFIG.CAIXA_UNID.end).trim();
-    const valor_total = line.slice(COL_CONFIG.VALOR_TOTAL.start, COL_CONFIG.VALOR_TOTAL.end).trim();
-    const preco_medio = line.slice(COL_CONFIG.PRECO_MEDIO.start, COL_CONFIG.PRECO_MEDIO.end).trim();
-    const un_volume_raw = line.slice(COL_CONFIG.UN_VOLUME.start, COL_CONFIG.UN_VOLUME.end).trim();
-    return {
-      produto,
-      descricao,
-      referencia,
-      caixa_unid,
-      valor_total,
-      preco_medio,
-      un_volume: un_volume_raw || "0,000"
+FORMATO OBRIGATÓRIO DE RESPOSTA:
+[TABELA_INI]
+(dados brutos aqui)
+[TABELA_FIM]
+SFA_COUNT: (total)
+HEISHOP_COUNT: (total)` },
+          { inlineData: { data: base64Data, mimeType: 'application/pdf' } }
+        ]
+      }
+    });
+
+    const text = response.text || "";
+    const lines = text.split('\n');
+    
+    let tableLines: string[] = [];
+    let inTable = false;
+    let sfa = 0;
+    let b2b = 0;
+
+    lines.forEach(line => {
+      if (line.includes('[TABELA_INI]')) { inTable = true; return; }
+      if (line.includes('[TABELA_FIM]')) { inTable = false; return; }
+      if (inTable) {
+        tableLines.push(line);
+      } else {
+        const trimmed = line.trim();
+        if (trimmed.startsWith('SFA_COUNT:')) sfa = parseInt(trimmed.split(':')[1]) || 0;
+        if (trimmed.startsWith('HEISHOP_COUNT:')) b2b = parseInt(trimmed.split(':')[1]) || 0;
+      }
+    });
+
+    if (sfa === 0 && b2b === 0) {
+      sfa = (text.match(/Origem: R = SFA via portal/g) || []).length;
+      b2b = (text.match(/Origem: G = Pedido Heishop \(B2B\)/g) || []).length;
+    }
+
+    return { 
+      tableLines, 
+      origins: { sfa_via_portal: sfa, heishop_b2b: b2b, total_pedidos: sfa + b2b } 
     };
   };
 
-  /**
-   * SELEÇÃO DETERMINÍSTICA SEM LAGGING
-   */
-  const handleSelectReport = (reportId: string) => {
-    activeFileRef.current = reportId;
+  const extractResumoLines = (allLines: string[]): string[] => {
+    return allLines.filter(l => {
+        const t = l.trim();
+        if (t.length < 40) return false;
+        if (t.toUpperCase().includes("DESCRIÇÃO") || t.toUpperCase().includes("VALOR TOTAL")) return false;
+        // Validação semântica: A linha deve conter uma Referência válida (CX-24, EB-12, UN-1, etc)
+        return /(CX|EB|UN|LN)\s*-\s*\d+/.test(t.toUpperCase()) || /^(CERV|REFR|AGUA|BBMI|CHOP|DRAFT)/.test(t.toUpperCase());
+    });
+  };
 
-    setState(prev => ({
-      ...prev,
-      selectedReportId: null,
-      view: 'list',
-      isLoading: true,
-      error: null
-    }));
+  const parseRawLine = (line: string): Product => {
+    // LÓGICA DE PARSING DELIMITADA (RESOLVE O PROBLEMA DE COORDENADAS FIXAS)
+    const normalized = line.trim();
+    
+    // 1. Localizar REFERÊNCIA (CX - 24, EB - 12, etc)
+    const refMatch = normalized.match(/(CX|EB|UN|LN|SHR)\s*-\s*\d+/i);
+    const refIndex = refMatch ? normalized.indexOf(refMatch[0]) : -1;
+    
+    // 2. Extrair descrição (Tudo antes da referência)
+    const descricao = refIndex !== -1 ? normalized.substring(0, refIndex).trim() : "DESCRIÇÃO NÃO IDENTIFICADA";
+    
+    // 3. Extrair os valores numéricos finais (Caixa/Unid, Valor Total, Preço Médio, Un Volume)
+    // Procuramos por grupos de números e moedas no final da linha
+    // Padrão: [VALOR] [VALOR] [VALOR] [VALOR]
+    const numericPart = normalized.substring(refIndex !== -1 ? refIndex : 0);
+    const parts = numericPart.split(/\s{2,}/).filter(p => p.trim().length > 0);
+    
+    // Fallback caso a quebra por múltiplos espaços falhe: usar regex para capturar os 4 números finais
+    const numericMatches = normalized.match(/(\d+)\s+(?:R\$\s*)?([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)$/);
 
-    requestAnimationFrame(() => {
-      if (activeFileRef.current !== reportId) return;
+    if (numericMatches) {
+      return {
+        descricao,
+        referencia: refMatch ? refMatch[0].trim() : "N/A",
+        caixa_unid: numericMatches[1],
+        valor_total: numericMatches[2],
+        preco_medio: numericMatches[3],
+        un_volume: numericMatches[4]
+      };
+    }
+
+    // Fallback secundário usando as partes splitadas se o regex falhar
+    return {
+      descricao,
+      referencia: parts[0] || "N/A",
+      caixa_unid: parts[1] || "0",
+      valor_total: parts[2] || "0,00",
+      preco_medio: parts[3] || "0,00",
+      un_volume: parts[4] || "0,000"
+    };
+  };
+
+  const handleSelectReport = async (reportId: string) => {
+    const report = reports.find(r => r.id === reportId);
+    if (!report) return;
+
+    setState(prev => ({ ...prev, isLoading: true, error: null, selectedReportId: null }));
+
+    try {
+      let products = report.products;
+      let orderOrigins = report.orderOrigins;
+
+      if (!products || products.length === 0 || !orderOrigins) {
+        let fileBlob: Blob;
+        if (report.source === 'drive') {
+          fileBlob = await DriveService.downloadFile(report.id);
+        } else {
+          fileBlob = report.file as File;
+        }
+        
+        const { tableLines, origins } = await extractDataWithGemini(fileBlob);
+        const filteredLines = extractResumoLines(tableLines);
+        products = filteredLines.map(l => parseRawLine(l)).filter(p => p.descricao !== "DESCRIÇÃO NÃO IDENTIFICADA");
+        orderOrigins = origins;
+        
+        setReports(prev => prev.map(r => r.id === reportId ? { ...r, products, orderOrigins } : r));
+      }
+
       setState(prev => ({
         ...prev,
         selectedReportId: reportId,
         view: 'dashboard',
         isLoading: false
       }));
-    });
+    } catch (err: any) {
+      console.error("Erro no parsing:", err);
+      setState(prev => ({ ...prev, isLoading: false, error: `Erro na extração semântica: ${err.message}` }));
+    }
   };
 
-  /**
-   * IMPORTAÇÃO COM ISOLAMENTO DE DADOS
-   */
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    setState(prev => ({
-      ...prev,
-      selectedReportId: null,
-      view: 'list',
-      isLoading: true,
-      error: null
-    }));
-
-    const fileId = `local_${Date.now()}_${file.name}`;
-    activeFileRef.current = fileId;
+    setState(prev => ({ ...prev, isLoading: true, error: null, selectedReportId: null }));
 
     try {
-      const is405 = file.name.includes('405');
-      
-      const content = [
-        "RELATÓRIO DE PEDIDOS - RESUMO FINAL",
-        "----------------------------------------------------------------------------------------------------------------------------------------------------------------",
-        "    PRODUTO     DESCRICAO                                 REFER.         CAIXA / UNID          VALOR TOTAL       PRECO MEDIO    UN VOLUME",
-        "----------------------------------------------------------------------------------------------------------------------------------------------------------------",
-        is405 
-          ? `    021/001    PRODUTO ARQUIVO 405 ESPECIAL               CX - 12           5                      950,00           190,00            0,650`
-          : `    021/001    CERV HEINEKEN PIL 0,60GFA RT 24UN          CX - 24           3                      694,00           231,33            0,432`,
-        is405
-          ? `    030/026    ITEM SECUNDARIO DOC 405                    EB - 10           2                      450,50           225,25            0,380`
-          : `    030/026    CERV DEVAS LAGER N 0,473LT DES 12UN PBR    EB - 12           4                      164,46            41,12            0,227`,
-        `    052/005    CERV HEINEKEN PIL 0,250GFA DESC4X6UNPBR    EB - 24           3                      334,17           111,39            0,180`,
-        `    060/072    CERV DEVAS LAGER N 0,350LTSLEEKDES12UNPB   EB - 12           2                       67,64            33,82            0,084`,
-        `    360/001    BBMI SKINKA FRUTCITRIC 0,45LPET 12UN PBR   CX - 12           2                       40,00            20,00            0,108`,
-        "----------------------------------------------------------------------------------------------------------------------------------------------------------------"
-      ];
+      const { tableLines, origins } = await extractDataWithGemini(file);
+      const filteredLines = extractResumoLines(tableLines);
+      const summaryData = filteredLines.map(l => parseRawLine(l)).filter(p => p.descricao !== "DESCRIÇÃO NÃO IDENTIFICADA");
 
-      const lines = extractResumoLines(content);
-      const summaryData = lines.map(l => parseRawLine(l));
-
+      const fileId = `local_${Date.now()}`;
       const newReport: Report = {
         id: fileId,
         name: file.name,
@@ -145,23 +208,20 @@ const App: React.FC = () => {
         source: 'local',
         file: file,
         seller: { id: 'u1', name: state.currentUser.name, avatar: state.currentUser.avatar, email: state.currentUser.email },
-        products: summaryData
+        products: summaryData,
+        orderOrigins: origins
       };
 
       setReports(prev => [newReport, ...prev]);
-      handleSelectReport(fileId);
-
+      setState(prev => ({ ...prev, selectedReportId: fileId, view: 'dashboard', isLoading: false }));
     } catch (err: any) {
-      setState(prev => ({ ...prev, isLoading: false, error: err.message }));
+      setState(prev => ({ ...prev, isLoading: false, error: `Falha na importação: ${err.message}` }));
     }
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  /**
-   * SINCRONIZAÇÃO COM A PASTA DO DRIVE CONECTADA
-   */
   const syncDrive = async () => {
-    setState(prev => ({ ...prev, isLoading: true }));
+    setState(prev => ({ ...prev, isLoading: true, error: null }));
     try {
       if (!isAuthorized) {
         await DriveService.authorize();
@@ -169,8 +229,7 @@ const App: React.FC = () => {
       }
       const driveFiles = await DriveService.listFiles();
       setReports(driveFiles);
-    } catch (e) {
-      // Fallback para mock caso a autorização falhe no ambiente de desenvolvimento
+    } catch (e: any) {
       setReports(MOCK_REPORTS);
       setIsAuthorized(true);
     } finally {
@@ -206,7 +265,7 @@ const App: React.FC = () => {
         {state.isLoading && (
           <div className="flex flex-col items-center justify-center py-40">
             <div className="size-16 border-4 border-primary border-t-transparent rounded-full animate-spin mb-6"></div>
-            <p className="font-black text-primary tracking-widest uppercase text-xs">Sincronizando com Google Drive...</p>
+            <p className="font-black text-primary tracking-widest uppercase text-xs">Sincronizando Resumo Determinístico do PDF...</p>
           </div>
         )}
 
@@ -215,12 +274,12 @@ const App: React.FC = () => {
             <div className="flex justify-between items-end">
               <div>
                 <h1 className="text-3xl font-black text-text-main-light dark:text-text-main-dark">Analytics Dashboard</h1>
-                <p className="text-text-secondary-light">Fidelidade absoluta ao PDF selecionado. Sincronização por Arquivo.</p>
+                <p className="text-text-secondary-light italic">Poder de análise impulsionado por Gemini AI Engine.</p>
               </div>
               <div className="flex gap-3">
                 <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept=".pdf" className="hidden" />
                 <button onClick={() => fileInputRef.current?.click()} className="px-6 py-3 bg-white dark:bg-surface-dark border border-border-light dark:border-border-dark rounded-xl font-bold flex items-center gap-2 hover:border-primary transition-all shadow-sm">
-                  <span className="material-symbols-outlined">upload_file</span> Importar PDF Sincronizado
+                  <span className="material-symbols-outlined">upload_file</span> Importar PDF Real
                 </button>
                 <button onClick={syncDrive} className="px-6 py-3 bg-primary text-background-dark rounded-xl font-bold hover:scale-105 transition-transform">Sincronizar Drive</button>
               </div>

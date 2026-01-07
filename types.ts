@@ -13,18 +13,23 @@ export interface User {
   driveFolderUrl?: string;
 }
 
+export interface OrderOrigins {
+  sfa_via_portal: number;
+  heishop_b2b: number;
+  total_pedidos: number;
+}
+
 /**
- * TESTE 5 — ESTRUTURA EXATA DAS COLUNAS
- * A ordem e os nomes das propriedades devem ser idênticos aos testes.
+ * TESTE 5 — ESTRUTURA EXATA DAS COLUNAS (ATUALIZADO)
+ * A ordem deve ser rigorosamente: DESCRIÇÃO, REFERÊNCIA, CAIXA/UNID, VALOR TOTAL, PREÇO MÉDIO, UN VOLUME.
  */
 export interface Product {
-  produto: string;     // ex: 021/001
-  descricao: string;   // ex: CERV HEINEKEN...
-  referencia: string;  // ex: CX - 24
-  caixa_unid: string;  // ex: 5
-  valor_total: string; // ex: 1.167,38
-  preco_medio: string; // ex: 233,48
-  un_volume: string;   // ex: 0,720
+  descricao: string;   // ex: CERV HEINEKEN... (Coluna 0-45)
+  referencia: string;  // ex: CX - 24 (Coluna 46-60)
+  caixa_unid: string;  // ex: 5 (Coluna 61-75)
+  valor_total: string; // ex: 1.167,38 (Coluna 76-95)
+  preco_medio: string; // ex: 233,48 (Coluna 96-115)
+  un_volume: string;   // ex: 0,720 (Coluna 116-130)
 }
 
 export interface Report {
@@ -38,6 +43,7 @@ export interface Report {
   file?: File; 
   pdfUrl?: string;
   products?: Product[];
+  orderOrigins?: OrderOrigins;
   metrics?: {
     totalSales: number;
     totalVolume: number;

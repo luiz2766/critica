@@ -7,14 +7,83 @@ interface DashboardViewProps {
   onBack: () => void;
 }
 
+// TABELA MESTRE - PRODUTOS, MARCAS, FUNDAMENTOS E UN VOLUME (HL)
+const MASTER_TABLE: Record<string, { marca: string; fundamentos: string; volUnit: number }> = {
+  // Cerveja 600ml
+  "001/012 CERV SCHIN PILS 0,60LGFA 24UN": { marca: "ECONOMY", fundamentos: "RGB", volUnit: 0.144 },
+  "021/001 CERV HEINEKEN PIL 0,60GFA RT 24UN": { marca: "PREMIUM", fundamentos: "RGB", volUnit: 0.144 },
+  "001/021 CERV AMSTEL LAGER 0,60L GFA RT 24UN": { marca: "MAINSTREAM", fundamentos: "RGB", volUnit: 0.144 },
+  "001/026 CERV DEVASSA LAGER N 0,60LGFA RT24UNPH": { marca: "MAINSTREAM", fundamentos: "RGB", volUnit: 0.144 },
+  // Cerveja Litrão
+  "025/007 CERV SCHIN PILS 1LGFA 12UN": { marca: "ECONOMY", fundamentos: "RGB", volUnit: 0.120 },
+  "025/013 CERV DEVASSA LAGER N 1LGFA RT 12UN PT1": { marca: "MAINSTREAM", fundamentos: "RGB", volUnit: 0.120 },
+  "025/012 CERV AMSTEL PIL 1LGFA RT 12UN": { marca: "MAINSTREAM", fundamentos: "RGB", volUnit: 0.120 },
+  // Cerveja Litrinho
+  "061/012 CERV DEVASSA LAGER N 0,30LGFA RT 24UN": { marca: "MAINSTREAM", fundamentos: "RGB", volUnit: 0.072 },
+  "061/011 CERV AMSTEL LAGER 0,30LGFA RT 24UN": { marca: "MAINSTREAM", fundamentos: "RGB", volUnit: 0.072 },
+  // Cerveja Lata 350ml
+  "CERV SCHIN PILS 0,350LT 12UN PBR": { marca: "ECONOMY", fundamentos: "N/A", volUnit: 0.042 },
+  "CERV BADEN PILCRIST 0,350LT SLEK2X6UNPBR": { marca: "MAINSTREAM", fundamentos: "N/A", volUnit: 0.042 },
+  "060/064 CERV HEINEKEN PIL 0,350LT SLEEKDES12UNPB": { marca: "PREMIUM", fundamentos: "N/A", volUnit: 0.042 },
+  "060/066 CERV HEINEKEN 0,0% 0,350LTSLEEKDES12UNPB": { marca: "PREMIUM", fundamentos: "N/A", volUnit: 0.042 },
+  "CERV BADEN WITBIER 0,350LT SLEEK2X6UNPBR": { marca: "CRAFT", fundamentos: "N/A", volUnit: 0.042 },
+  "CERV BADEN IPA 0,350LT SLEK2X6UNPBR": { marca: "CRAFT", fundamentos: "N/A", volUnit: 0.042 },
+  "CERV LAGUNITAS IPA 0,350LT SLE": { marca: "CRAFT", fundamentos: "N/A", volUnit: 0.042 },
+  "CERV BLUE MOON 0,350LT SLEEK CART12UNPBR": { marca: "CRAFT", fundamentos: "N/A", volUnit: 0.042 },
+  "060/072 CERV DEVAS LAGER N 0,350LTSLEEKDES12UNPB": { marca: "MAINSTREAM", fundamentos: "N/A", volUnit: 0.042 },
+  "060/065 CERV AMSTEL LAGER 0,350LT SLEEK 12UN PBR": { marca: "MAINSTREAM", fundamentos: "N/A", volUnit: 0.042 },
+  // Cerveja Lata 269ml / 473ml
+  "030/007 CERV SCHIN PILS 0,473LT 12UN PBR": { marca: "ECONOMY", fundamentos: "N/A", volUnit: 0.057 },
+  "030/026 CERV DEVAS LAGER N 0,473LT DES 12UN PBR": { marca: "MAINSTREAM", fundamentos: "N/A", volUnit: 0.057 },
+  "030/021 CERV AMSTEL LAGER 0,473LT DES 12UNPBR": { marca: "MAINSTREAM", fundamentos: "N/A", volUnit: 0.057 },
+  "078/001 CERV HEINEKEN PIL 0,269LT DESC 8UN PB": { marca: "PREMIUM", fundamentos: "N/A", volUnit: 0.022 },
+  "CERV HEINEKEN 0,0% 0,269LT DESC 8UN PBR": { marca: "PREMIUM", fundamentos: "N/A", volUnit: 0.022 },
+  "CERV AMSTEL ULTRA 0,269LT 12UNPBR": { marca: "MAINSTREAM", fundamentos: "N/A", volUnit: 0.032 },
+  "003/010 CERV AMSTEL LAGER 0,269LT SHR 12UNPBR": { marca: "MAINSTREAM", fundamentos: "N/A", volUnit: 0.032 },
+  // Cervejas Especiais
+  "CERV BADEN PILSCRIST 0,60LGFA 12UN PB": { marca: "CRAFT", fundamentos: "N/A", volUnit: 0.072 },
+  "010/005 CERV BADEN GOLDEN ALE 0,60LGFA 12UN PBR": { marca: "CRAFT", fundamentos: "N/A", volUnit: 0.072 },
+  "010/014 CERV BADEN WITBIER 0,60LGFA 12UN PBR": { marca: "CRAFT", fundamentos: "N/A", volUnit: 0.072 },
+  "CERV BADEN AMERICAN IPA 0,60LGFA 12UN": { marca: "CRAFT", fundamentos: "N/A", volUnit: 0.072 },
+  "010/029 CERV HEINEKEN PIL 0,6GFA DESC 12UNPBR": { marca: "PREMIUM", fundamentos: "N/A", volUnit: 0.072 },
+  "040/042 CERV LAGUNITAS IPA 0,355LN DES 12UN PBR": { marca: "CRAFT", fundamentos: "N/A", volUnit: 0.043 },
+  "060/058 CERV BLUE MOON 0,350LT SLEEK CART 12 UN": { marca: "CRAFT", fundamentos: "N/A", volUnit: 0.085 },
+  "DRAFT BEER HEINEKEN PIL 5L DESC 2UNPBR": { marca: "PREMIUM", fundamentos: "N/A", volUnit: 0.100 },
+  "052/005 CERV HEINEKEN PIL 0,250GFA DESC4X6UNPBR": { marca: "PREMIUM", fundamentos: "N/A", volUnit: 0.060 },
+  "056/001 CERV HEINEKEN PIL 0,330GFA DESC 4X6UN PB": { marca: "PREMIUM", fundamentos: "N/A", volUnit: 0.079 },
+  "056/008 CERV PRAYA LAGER 0,330GFA DESC 4X6UNPBR": { marca: "PREMIUM", fundamentos: "N/A", volUnit: 0.079 },
+  "CERV HEINEKEN 0,0% 0,330GFA DES 4X6UNPBR": { marca: "PREMIUM", fundamentos: "N/A", volUnit: 0.079 },
+  "CERV AMSTEL ULTRA 0,275LN DES 2X6UN PBR": { marca: "MAINSTREAM", fundamentos: "N/A", volUnit: 0.033 },
+  // Chopp
+  "CHOP HEINEKEN PIL 30LBARRIL RT": { marca: "PREMIUM", fundamentos: "RGB", volUnit: 0.300 },
+  "CHOP HEINEKEN PIL 50LBARRIL RT": { marca: "PREMIUM", fundamentos: "RGB", volUnit: 0.500 },
+  "160/058 DRAFT BEER AMSTEL LAGER 30L PBR2": { marca: "MAINSTREAM", fundamentos: "RGB", volUnit: 0.300 },
+  "DRAFT BEER AMSTEL LAGER 50L PBR2": { marca: "MAINSTREAM", fundamentos: "RGB", volUnit: 0.500 },
+  // Refrigerante FYS
+  "245/032 REFR FYS GUARANA 0,350LT DES 12UN PBR": { marca: "FYS", fundamentos: "SINGLE SERVE", volUnit: 0.042 },
+  "245/034 REFR FYS LARANJA 0,350LT DES 12UN PBR": { marca: "FYS", fundamentos: "SINGLE SERVE", volUnit: 0.042 },
+  "245/035 REFR FYS LIMAO 0,350LT DES 12UN PBR": { marca: "FYS", fundamentos: "SINGLE SERVE", volUnit: 0.042 },
+  "245/041 REFR FYS GUARANA ZERO 0,350LT DESC12UNPB": { marca: "FYS", fundamentos: "SINGLE SERVE", volUnit: 0.042 },
+  "REFR FYS TONICA 0,350LT DES 12UN PBR": { marca: "FYS", fundamentos: "SINGLE SERVE", volUnit: 0.042 },
+  "REFR FYS TONICA ZERO 0,350LT DES 12UN PB": { marca: "FYS", fundamentos: "SINGLE SERVE", volUnit: 0.042 },
+  "245/040 REFR FYS LIMAO ZERO 0,350LT DESC 12UNPBR":{ marca: "FYS", fundamentos: "SINGLE SERVE", volUnit: 0.042 },
+  // Água Mineral
+  "310/001 AGUA SCHIN MINER S/GAS 0,50LPET 12UN PBR": { marca: "AGUA SCHIN", fundamentos: "SINGLE SERVE", volUnit: 0.060 },
+  "310/002 AGUA SCHIN MINER C/GAS 0,50LPET 12UN PBR": { marca: "AGUA SCHIN", fundamentos: "SINGLE SERVE", volUnit: 0.060 },
+  // Skinka
+  "360/001 BBMI SKINKA FRUTCITRIC 0,45LPET 12UN PBR": { marca: "SKINKA", fundamentos: "SINGLE SERVE", volUnit: 0.054 },
+  "360/002 BBMI SKINKA FRUTVERM 0,45LPET 12UN PBR": { marca: "SKINKA", fundamentos: "SINGLE SERVE", volUnit: 0.054 },
+  "BBMI SKINKA UVA 0,45LPET DES 12UN PBR": { marca: "SKINKA", fundamentos: "SINGLE SERVE", volUnit: 0.054 },
+};
+
 const DashboardView: React.FC<DashboardViewProps> = ({ report, onBack }) => {
   const [pdfLocalUrl, setPdfLocalUrl] = useState<string | null>(null);
-  const [selectedCodes, setSelectedCodes] = useState<Set<string>>(new Set());
+  const [selectedDescriptions, setSelectedDescriptions] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (report?.products) {
-      const allCodes = report.products.map(p => p.produto);
-      setSelectedCodes(new Set(allCodes));
+      const allDescs = report.products.map(p => p.descricao);
+      setSelectedDescriptions(new Set(allDescs));
     }
   }, [report?.id]);
 
@@ -26,9 +95,6 @@ const DashboardView: React.FC<DashboardViewProps> = ({ report, onBack }) => {
     }
   }, [report?.id]);
 
-  /**
-   * FUNÇÃO DE SUPORTE OBRIGATÓRIA (TESTE 11)
-   */
   const parseVolume = (value: string): number => {
     return Number(value.replace(",", "."));
   };
@@ -37,14 +103,10 @@ const DashboardView: React.FC<DashboardViewProps> = ({ report, onBack }) => {
     return Number(value.replace(".", "").replace(",", "."));
   };
 
-  /**
-   * FILTRAGEM DETERMINÍSTICA
-   * Mantém a ordem original do array products (Teste 4).
-   */
   const summaryData = useMemo(() => {
     if (!report?.products) return [];
-    return report.products.filter(p => selectedCodes.has(p.produto));
-  }, [report?.products, selectedCodes]);
+    return report.products.filter(p => selectedDescriptions.has(p.descricao));
+  }, [report?.products, selectedDescriptions]);
 
   const metrics = useMemo(() => {
     if (summaryData.length === 0) return { total: 0, vol: 0, items: 0 };
@@ -55,14 +117,40 @@ const DashboardView: React.FC<DashboardViewProps> = ({ report, onBack }) => {
     };
   }, [summaryData]);
 
-  const toggleProduct = (code: string) => {
-    const newSet = new Set(selectedCodes);
-    if (newSet.has(code)) {
-      newSet.delete(code);
+  const analytics = useMemo(() => {
+    const brandData: Record<string, { cases: number; hl: number }> = {};
+    const fundamentalsData: Record<string, { some: number; hl: number }> = {};
+
+    summaryData.forEach(p => {
+      const mapping = MASTER_TABLE[p.descricao.toUpperCase()];
+      if (mapping) {
+        const cases = parseInt(p.caixa_unid) || 0;
+        const hl = parseVolume(p.un_volume);
+
+        if (!brandData[mapping.marca]) brandData[mapping.marca] = { cases: 0, hl: 0 };
+        brandData[mapping.marca].cases += cases;
+        brandData[mapping.marca].hl += hl;
+
+        if (!fundamentalsData[mapping.fundamentos]) fundamentalsData[mapping.fundamentos] = { some: 0, hl: 0 };
+        fundamentalsData[mapping.fundamentos].some += cases;
+        fundamentalsData[mapping.fundamentos].hl += hl;
+      }
+    });
+
+    return {
+      brands: Object.entries(brandData).sort((a, b) => b[1].hl - a[1].hl),
+      fundamentals: Object.entries(fundamentalsData).sort((a, b) => b[1].hl - a[1].hl),
+    };
+  }, [summaryData]);
+
+  const toggleProduct = (desc: string) => {
+    const newSet = new Set(selectedDescriptions);
+    if (newSet.has(desc)) {
+      newSet.delete(desc);
     } else {
-      newSet.add(code);
+      newSet.add(desc);
     }
-    setSelectedCodes(newSet);
+    setSelectedDescriptions(newSet);
   };
 
   if (!report) return null;
@@ -88,7 +176,7 @@ const DashboardView: React.FC<DashboardViewProps> = ({ report, onBack }) => {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white dark:bg-surface-dark p-6 rounded-2xl border border-border-light dark:border-border-dark shadow-sm">
           <p className="text-[10px] font-black text-text-secondary-light dark:text-text-secondary-dark uppercase mb-1">VALOR TOTAL (PDF)</p>
           <p className="text-2xl font-black text-text-main-light dark:text-text-main-dark">R$ {metrics.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
@@ -98,11 +186,100 @@ const DashboardView: React.FC<DashboardViewProps> = ({ report, onBack }) => {
           <p className="text-2xl font-black text-primary">{metrics.vol.toFixed(3).replace(".", ",")} HL</p>
         </div>
         <div className="bg-white dark:bg-surface-dark p-6 rounded-2xl border border-border-light dark:border-border-dark shadow-sm">
+          <p className="text-[10px] font-black text-text-secondary-light dark:text-text-secondary-dark uppercase mb-1">ORIGEM DOS PEDIDOS</p>
+          <div className="space-y-1 mt-1 font-mono text-[10px]">
+            <div className="flex justify-between items-center text-blue-600 dark:text-blue-400">
+              <span className="font-bold">SFA PORTAL:</span>
+              <span className="font-black text-sm">{report.orderOrigins?.sfa_via_portal || 0}</span>
+            </div>
+            <div className="flex justify-between items-center text-amber-600 dark:text-amber-400">
+              <span className="font-bold">HEISHOP B2B:</span>
+              <span className="font-black text-sm">{report.orderOrigins?.heishop_b2b || 0}</span>
+            </div>
+            <div className="flex justify-between items-center border-t border-border-light dark:border-border-dark pt-1 mt-1 font-black text-primary">
+              <span>TOTAL:</span>
+              <span className="text-sm">{report.orderOrigins?.total_pedidos || 0}</span>
+            </div>
+          </div>
+        </div>
+        <div className="bg-white dark:bg-surface-dark p-6 rounded-2xl border border-border-light dark:border-border-dark shadow-sm">
           <p className="text-[10px] font-black text-text-secondary-light dark:text-text-secondary-dark uppercase mb-1">ITENS FILTRADOS</p>
-          <p className="text-2xl font-black text-text-main-light dark:text-text-main-dark">{metrics.items} / {report.products?.length}</p>
+          <p className="text-2xl font-black text-text-main-light dark:text-text-main-dark">{metrics.items} / {report.products?.length || 0}</p>
         </div>
       </div>
 
+      {/* ANALÍTICO MARCA / FUNDAMENTOS */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="bg-white dark:bg-surface-dark rounded-2xl border border-border-light dark:border-border-dark shadow-sm overflow-hidden">
+          <div className="px-4 py-3 bg-background-light dark:bg-background-dark border-b border-border-light dark:border-border-dark">
+            <h4 className="text-[10px] font-black text-text-secondary-light dark:text-text-secondary-dark uppercase tracking-widest flex items-center gap-2">
+              <span className="material-symbols-outlined text-sm">stars</span>
+              Resumo por MARCA
+            </h4>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left font-mono text-[11px]">
+              <thead>
+                <tr className="border-b border-border-light dark:border-border-dark text-text-secondary-light">
+                  <th className="px-4 py-2 font-black uppercase">MARCA</th>
+                  <th className="px-4 py-2 font-black uppercase text-center">CX/UNID</th>
+                  <th className="px-4 py-2 font-black uppercase text-right">VOLUME (HL)</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border-light/40 dark:divide-border-dark/40">
+                {analytics.brands.map(([brand, data]) => (
+                  <tr key={brand} className="hover:bg-primary/5 transition-colors">
+                    <td className="px-4 py-2 font-bold text-text-main-light dark:text-text-main-dark">{brand}</td>
+                    <td className="px-4 py-2 text-center">{data.cases}</td>
+                    <td className="px-4 py-2 text-right font-black text-primary">{data.hl.toFixed(3).replace(".", ",")}</td>
+                  </tr>
+                ))}
+                {analytics.brands.length === 0 && (
+                  <tr>
+                    <td colSpan={3} className="px-4 py-6 text-center text-text-secondary-light italic">Processando resumo por marca...</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="bg-white dark:bg-surface-dark rounded-2xl border border-border-light dark:border-border-dark shadow-sm overflow-hidden">
+          <div className="px-4 py-3 bg-background-light dark:bg-background-dark border-b border-border-light dark:border-border-dark">
+            <h4 className="text-[10px] font-black text-text-secondary-light dark:text-text-secondary-dark uppercase tracking-widest flex items-center gap-2">
+              <span className="material-symbols-outlined text-sm">foundation</span>
+              Resumo por FUNDAMENTOS
+            </h4>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left font-mono text-[11px]">
+              <thead>
+                <tr className="border-b border-border-light dark:border-border-dark text-text-secondary-light">
+                  <th className="px-4 py-2 font-black uppercase">TIPO</th>
+                  <th className="px-4 py-2 font-black uppercase text-center">CX/UNID</th>
+                  <th className="px-4 py-2 font-black uppercase text-right">VOLUME (HL)</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border-light/40 dark:divide-border-dark/40">
+                {analytics.fundamentals.map(([type, data]) => (
+                  <tr key={type} className="hover:bg-primary/5 transition-colors">
+                    <td className="px-4 py-2 font-bold text-text-main-light dark:text-text-main-dark">{type}</td>
+                    <td className="px-4 py-2 text-center">{data.some}</td>
+                    <td className="px-4 py-2 text-right font-black text-primary">{data.hl.toFixed(3).replace(".", ",")}</td>
+                  </tr>
+                ))}
+                {analytics.fundamentals.length === 0 && (
+                  <tr>
+                    <td colSpan={3} className="px-4 py-6 text-center text-text-secondary-light italic">Processando resumo por fundamentos...</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      {/* RESUMO DETERMINÍSTICO HL */}
       <section className="bg-white dark:bg-surface-dark rounded-2xl border border-border-light dark:border-border-dark shadow-xl overflow-hidden">
         <div className="p-4 bg-background-light/30 dark:bg-background-dark/30 border-b border-border-light dark:border-border-dark flex justify-between items-center">
            <h3 className="font-black text-xs uppercase tracking-tighter flex items-center gap-2 text-text-main-light dark:text-text-main-dark">
@@ -113,58 +290,63 @@ const DashboardView: React.FC<DashboardViewProps> = ({ report, onBack }) => {
         </div>
 
         <div className="overflow-x-auto custom-scrollbar">
-          <table className="w-full font-mono text-[11px] border-collapse min-w-[1000px]">
+          <table className="w-full font-mono text-[11px] border-collapse min-w-[1300px]">
             <thead>
               <tr className="bg-background-light dark:bg-background-dark text-text-secondary-light dark:text-text-secondary-dark border-b border-border-light dark:border-border-dark">
-                <th className="px-4 py-3 text-center w-10">#</th>
-                <th className="px-4 py-3 text-left">PRODUTO</th>
-                <th className="px-4 py-3 text-left">DESCRIÇÃO</th>
-                <th className="px-4 py-3 text-left">REFERÊNCIA</th>
-                <th className="px-4 py-3 text-center">CAIXA/UNID</th>
-                <th className="px-4 py-3 text-right">VALOR TOTAL</th>
-                <th className="px-4 py-3 text-right">PREÇO MÉDIO</th>
-                <th className="px-4 py-3 text-right">UN VOLUME</th>
+                <th className="px-6 py-3 text-center w-10">#</th>
+                <th className="px-10 py-3 text-left">DESCRIÇÃO</th>
+                <th className="px-10 py-3 text-left">REFERÊNCIA</th>
+                <th className="px-10 py-3 text-center">CAIXA/UNID</th>
+                <th className="px-10 py-3 text-right">VALOR TOTAL</th>
+                <th className="px-10 py-3 text-right">PREÇO MÉDIO</th>
+                <th className="px-10 py-3 text-right">UN VOLUME</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border-light/40 dark:divide-border-dark/40">
               {report.products?.map((p, idx) => {
-                const isSelected = selectedCodes.has(p.produto);
+                const isSelected = selectedDescriptions.has(p.descricao);
                 return (
                   <tr 
                     key={`${report.id}-line-${idx}`} 
                     className={`transition-all ${isSelected ? 'bg-primary/5' : 'opacity-40 grayscale hover:opacity-100 hover:grayscale-0'}`}
-                    onClick={() => toggleProduct(p.produto)}
+                    onClick={() => toggleProduct(p.descricao)}
                   >
-                    <td className="px-4 py-3 text-center">
+                    <td className="px-6 py-3 text-center">
                       <input 
                         type="checkbox" 
                         checked={isSelected}
-                        onChange={() => toggleProduct(p.produto)}
+                        onChange={() => toggleProduct(p.descricao)}
                         className="rounded border-border-light text-primary focus:ring-primary size-4 cursor-pointer"
                         onClick={(e) => e.stopPropagation()}
                       />
                     </td>
-                    <td className="px-4 py-3 font-bold text-blue-600 dark:text-blue-400">{p.produto}</td>
-                    <td className="px-4 py-3 font-medium uppercase truncate max-w-[280px]">{p.descricao}</td>
-                    <td className="px-4 py-3 text-text-secondary-light dark:text-text-secondary-dark">{p.referencia}</td>
-                    <td className="px-4 py-3 text-center font-bold">{p.caixa_unid}</td>
-                    <td className="px-4 py-3 text-right font-black">R$ {p.valor_total}</td>
-                    <td className="px-4 py-3 text-right">{p.preco_medio}</td>
-                    <td className="px-4 py-3 text-right font-black text-primary">{p.un_volume}</td>
+                    <td className="px-10 py-3 font-medium uppercase truncate max-w-[400px]">{p.descricao}</td>
+                    <td className="px-10 py-3 text-text-secondary-light dark:text-text-secondary-dark">{p.referencia}</td>
+                    <td className="px-10 py-3 text-center font-bold">{p.caixa_unid}</td>
+                    <td className="px-10 py-3 text-right font-black">R$ {p.valor_total}</td>
+                    <td className="px-10 py-3 text-right">{p.preco_medio}</td>
+                    <td className="px-10 py-3 text-right font-black text-primary">{p.un_volume}</td>
                   </tr>
                 );
               })}
+              {(!report.products || report.products.length === 0) && (
+                <tr>
+                  <td colSpan={7} className="px-10 py-20 text-center text-text-secondary-light italic font-bold">
+                    Nenhum dado extraído do PDF. Verifique o layout ou as coordenadas de slicing.
+                  </td>
+                </tr>
+              )}
             </tbody>
             <tfoot className="bg-background-light/50 dark:bg-background-dark/50 border-t-2 border-border-light dark:border-border-dark font-bold text-sm text-text-main-light dark:text-text-main-dark">
               <tr>
-                <td colSpan={5} className="px-4 py-6 text-xs uppercase font-black text-text-secondary-light">
+                <td colSpan={4} className="px-10 py-6 text-xs uppercase font-black text-text-secondary-light">
                   MÉTRICA FINAL (CROSS-CHECK VOLUME):
                 </td>
-                <td className="text-right px-4 font-black">
+                <td className="text-right px-10 font-black">
                   R$ {metrics.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                 </td>
                 <td></td>
-                <td className="text-right px-4 text-primary font-black">
+                <td className="text-right px-10 text-primary font-black">
                   {metrics.vol.toFixed(3).replace(".", ",")}
                 </td>
               </tr>
