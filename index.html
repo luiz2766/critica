@@ -74,28 +74,24 @@
             font-size: 12px;
         }
     </style>
-
-    <!-- 
-      FIX: Unificação de versões no Import Map.
-      O white screen em produção era causado pela divergência entre 'react' (19.0.0) 
-      e sub-paths 'react/' (19.2.3), gerando instâncias duplicadas da biblioteca.
-    -->
-    <script type="importmap">
+<script type="importmap">
 {
   "imports": {
-    "react": "https://esm.sh/react@19.0.0",
-    "react-dom": "https://esm.sh/react-dom@19.0.0",
-    "react-dom/client": "https://esm.sh/react-dom@19.0.0/client",
-    "react/jsx-runtime": "https://esm.sh/react@19.0.0/jsx-runtime",
-    "recharts": "https://esm.sh/recharts@2.15.0",
-    "@google/genai": "https://esm.sh/@google/genai@1.3.0",
+    "react": "https://esm.sh/react@^19.2.3",
     "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
-    "react/": "https://esm.sh/react@^19.2.3/"
+    "react/": "https://esm.sh/react@^19.2.3/",
+    "@google/genai": "https://esm.sh/@google/genai@^1.34.0"
   }
 }
 </script>
 </head>
 <body class="bg-background-light dark:bg-background-dark font-display text-text-main-light dark:text-text-main-dark transition-colors duration-300">
     <div id="root"></div>
+    <!-- 
+      ENTRY POINT: Adicionado explicitamente para garantir a execução do bootstrap do React. 
+      O build system (Vercel/AI Studio) resolverá as importações de 'react' localmente 
+      sem depender de Import Maps externos que falham em produção.
+    -->
+    <script type="module" src="index.tsx"></script>
 </body>
 </html>
