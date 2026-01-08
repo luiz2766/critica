@@ -27,9 +27,11 @@ const App: React.FC = () => {
   });
 
   const [reports, setReports] = useState<Report[]>([]);
-  const [isAuthorized, setIsAuthorized] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  /**
+   * Helper: Conversão de arquivo para Base64 (necessário para o Gemini)
+   */
   const fileToBase64 = (file: File | Blob): Promise<string> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -39,62 +41,111 @@ const App: React.FC = () => {
     });
   };
 
-  const extractDataWithGemini = async (file: File | Blob): Promise<{ tableLines: string[], origins: OrderOrigins }> => {
+  /**
+   * PIPELINE ÚNICO: Extração Determinística de Dados
+   * Centraliza a lógica de análise do Gemini para Drive e Local.
+   * Mantém a ordem exata das colunas: DESCRIÇÃO, REFERÊNCIA, CAIXA/UNID, VALOR TOTAL, PREÇO MÉDIO, UN VOLUME.
+   */
+  const extractPdfDataPipeline = async (file: File | Blob): Promise<{ products: Product[], origins: OrderOrigins }> => {
+    const apiKey = process.env.API_KEY;
+    if (!apiKey) {
+      throw new Error("API_KEY não encontrada. Verifique as variáveis de ambiente.");
+    }
+
     const base64Data = await fileToBase64(file);
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = new GoogleGenAI({ apiKey });
     
-    // Usando tipagem genérica para evitar erros de importação de classes/interfaces específicas do SDK
-    const response: any = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview',
+    // Seguindo as diretrizes: model 'gemini-3-flash-preview' para tarefas de extração/resumo
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
       contents: {
         parts: [
-          { text: `Extraia o 'RESUMO FINAL' deste PDF. 
-Retorne as linhas brutas preservando a ordem: Descrição, Referência, Caixa/Unid, Valor Total, Preço Médio, Un Volume.
-Localize as quantidades de origens:
-- "Origem: R = SFA via portal"
-- "Origem: G = Pedido Heishop (B2B)"
+          { text: `Aja como um extrator de dados altamente preciso. 
+Localize o bloco 'RESUMO FINAL' no PDF. 
+Para cada produto no bloco, extraia exatamente nesta ordem:
+1. Descrição (nome do produto)
+2. Referência (ex: CX-24, UN-1)
+3. Caixa/Unid (quantidade)
+4. Valor Total (monetário)
+5. Preço Médio (monetário)
+6. Un Volume (valor decimal)
 
-FORMATO:
-[TABELA_INI]
-(dados)
-[TABELA_FIM]
-SFA_COUNT: (total)
-HEISHOP_COUNT: (total)` },
+Também extraia as contagens de origens:
+- SFA_COUNT: ocorrências de "Origem: R = SFA via portal"
+- HEISHOP_COUNT: ocorrências de "Origem: G = Pedido Heishop (B2B)"
+
+Formate a resposta como JSON estrito:
+{
+  "products": [
+    {
+      "descricao": "...",
+      "referencia": "...",
+      "caixa_unid": "...",
+      "valor_total": "...",
+      "preco_medio": "...",
+      "un_volume": "..."
+    }
+  ],
+  "sfa_count": 0,
+  "heishop_count": 0
+}` },
           { inlineData: { data: base64Data, mimeType: 'application/pdf' } }
         ]
       }
     });
 
-    const text = response.text || "";
+    try {
+      // O SDK Gemini retorna a resposta em .text
+      const text = response.text;
+      const jsonStr = text.substring(text.indexOf('{'), text.lastIndexOf('}') + 1);
+      const data = JSON.parse(jsonStr);
+
+      return {
+        products: data.products || [],
+        origins: {
+          sfa_via_portal: data.sfa_count || 0,
+          heishop_b2b: data.heishop_count || 0,
+          total_pedidos: (data.sfa_count || 0) + (data.heishop_count || 0)
+        }
+      };
+    } catch (e) {
+      console.error("Falha no parse do JSON da IA, tentando fallback manual:", e);
+      // Fallback para o método de linhas caso a IA falhe em retornar JSON limpo
+      return fallbackExtraction(response.text);
+    }
+  };
+
+  /**
+   * Fallback: Caso a IA não retorne JSON perfeito
+   */
+  const fallbackExtraction = (text: string) => {
     const lines = text.split('\n');
-    
-    let tableLines: string[] = [];
-    let inTable = false;
+    let products: Product[] = [];
     let sfa = 0;
     let b2b = 0;
 
-    lines.forEach((line: string) => {
-      if (line.includes('[TABELA_INI]')) { inTable = true; return; }
-      if (line.includes('[TABELA_FIM]')) { inTable = false; return; }
-      if (inTable) tableLines.push(line);
-      else {
-        const trimmed = line.trim();
-        if (trimmed.startsWith('SFA_COUNT:')) sfa = parseInt(trimmed.split(':')[1]) || 0;
-        if (trimmed.startsWith('HEISHOP_COUNT:')) b2b = parseInt(trimmed.split(':')[1]) || 0;
-      }
+    lines.forEach((line) => {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('SFA_COUNT:')) sfa = parseInt(trimmed.split(':')[1]) || 0;
+      if (trimmed.startsWith('HEISHOP_COUNT:')) b2b = parseInt(trimmed.split(':')[1]) || 0;
+      
+      const product = parseRawLine(trimmed);
+      if (product) products.push(product);
     });
 
-    return { 
-      tableLines, 
-      origins: { sfa_via_portal: sfa, heishop_b2b: b2b, total_pedidos: sfa + b2b } 
+    return {
+      products,
+      origins: { sfa_via_portal: sfa, heishop_b2b: b2b, total_pedidos: sfa + b2b }
     };
   };
 
+  /**
+   * Helper: Parsing de linha bruta para objeto Product (usado em fallback)
+   */
   const parseRawLine = (line: string): Product | null => {
     const normalized = line.trim();
     if (normalized.length < 30) return null;
 
-    // Âncora: Referência (CX-24, EB-12, etc)
     const refMatch = normalized.match(/(CX|EB|UN|LN|SHR|BAR|LAT|LATAS)\s*-\s*\d+/i);
     if (!refMatch) return null;
 
@@ -102,6 +153,8 @@ HEISHOP_COUNT: (total)` },
     const descricao = normalized.substring(0, refIndex).trim();
     const afterRef = normalized.substring(refIndex + refMatch[0].length).trim();
     const parts = afterRef.split(/\s+/).filter(p => p.length > 0);
+
+    if (parts.length < 4) return null;
 
     return {
       descricao,
@@ -113,6 +166,9 @@ HEISHOP_COUNT: (total)` },
     };
   };
 
+  /**
+   * Handlers
+   */
   const handleSelectReport = async (reportId: string) => {
     const report = reports.find(r => r.id === reportId);
     if (!report) return;
@@ -120,25 +176,22 @@ HEISHOP_COUNT: (total)` },
     setState(prev => ({ ...prev, isLoading: true, error: null }));
 
     try {
-      let products = report.products || [];
-      let orderOrigins = report.orderOrigins;
-
-      if (products.length === 0) {
-        const fileBlob = report.source === 'drive' 
-          ? await DriveService.downloadFile(report.id) 
-          : report.file as File;
-          
-        const { tableLines, origins } = await extractDataWithGemini(fileBlob);
-        products = tableLines.map(parseRawLine).filter((p): p is Product => p !== null);
-        orderOrigins = origins;
-        
-        setReports(prev => prev.map(r => r.id === reportId ? { ...r, products, orderOrigins } : r));
+      if (report.products && report.products.length > 0) {
+        setState(prev => ({ ...prev, selectedReportId: reportId, view: 'dashboard', isLoading: false }));
+        return;
       }
 
+      const fileBlob = report.source === 'drive' 
+        ? await DriveService.downloadFile(report.id) 
+        : report.file as File;
+          
+      const { products, origins } = await extractPdfDataPipeline(fileBlob);
+      
+      setReports(prev => prev.map(r => r.id === reportId ? { ...r, products, orderOrigins: origins } : r));
       setState(prev => ({ ...prev, selectedReportId: reportId, view: 'dashboard', isLoading: false }));
     } catch (err: any) {
-      console.error("Selection Error:", err);
-      setState(prev => ({ ...prev, isLoading: false, error: `Erro na análise do PDF: ${err.message}` }));
+      console.error("Pipeline Error:", err);
+      setState(prev => ({ ...prev, isLoading: false, error: `Erro na análise: ${err.message}` }));
     }
   };
 
@@ -149,10 +202,9 @@ HEISHOP_COUNT: (total)` },
     setState(prev => ({ ...prev, isLoading: true, error: null }));
 
     try {
-      const { tableLines, origins } = await extractDataWithGemini(file);
-      const products = tableLines.map(parseRawLine).filter((p): p is Product => p !== null);
-
+      const { products, origins } = await extractPdfDataPipeline(file);
       const fileId = `local_${Date.now()}`;
+      
       const newReport: Report = {
         id: fileId,
         name: file.name,
@@ -169,6 +221,7 @@ HEISHOP_COUNT: (total)` },
       setReports(prev => [newReport, ...prev]);
       setState(prev => ({ ...prev, selectedReportId: fileId, view: 'dashboard', isLoading: false }));
     } catch (err: any) {
+      console.error("Upload Error:", err);
       setState(prev => ({ ...prev, isLoading: false, error: `Falha na importação: ${err.message}` }));
     }
     if (fileInputRef.current) fileInputRef.current.value = '';
@@ -179,10 +232,8 @@ HEISHOP_COUNT: (total)` },
     try {
       const driveFiles = await DriveService.listFiles();
       setReports(driveFiles);
-      setIsAuthorized(true);
     } catch (e: any) {
       console.error('Sync Error:', e);
-      // Fallback para mock apenas se for erro de autorização cancelada ou similar
       if (reports.length === 0) setReports(MOCK_REPORTS);
       setState(prev => ({ ...prev, error: `Erro na sincronização: ${e.message}` }));
     } finally {
@@ -206,7 +257,7 @@ HEISHOP_COUNT: (total)` },
   );
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="min-h-screen flex flex-col transition-colors duration-300">
       <Header 
         isDarkMode={state.isDarkMode} 
         toggleDarkMode={() => setState(p => ({ ...p, isDarkMode: !p.isDarkMode }))}
@@ -216,10 +267,10 @@ HEISHOP_COUNT: (total)` },
       />
       <main className="flex-1 w-full max-w-7xl mx-auto px-4 py-8">
         {state.error && (
-          <div className="mb-6 p-4 bg-red-50 dark:bg-red-900/20 border-2 border-red-500 rounded-xl text-red-700 dark:text-red-400 font-black text-xs uppercase tracking-widest flex items-center gap-3 shadow-sm animate-in fade-in duration-300">
+          <div className="mb-6 p-4 bg-red-50 dark:bg-red-900/20 border-2 border-red-500 rounded-xl text-red-700 dark:text-red-400 font-black text-xs uppercase tracking-widest flex items-center gap-3 shadow-sm">
             <span className="material-symbols-outlined">report_problem</span>
             {state.error}
-            <button onClick={() => setState(p => ({...p, error: null}))} className="ml-auto hover:scale-110 transition-transform">
+            <button onClick={() => setState(p => ({...p, error: null}))} className="ml-auto">
               <span className="material-symbols-outlined text-sm">close</span>
             </button>
           </div>
@@ -228,7 +279,7 @@ HEISHOP_COUNT: (total)` },
         {state.isLoading && (
           <div className="flex flex-col items-center justify-center py-40 animate-in fade-in duration-500">
             <div className="size-16 border-4 border-primary border-t-transparent rounded-full animate-spin mb-6"></div>
-            <p className="font-black text-primary tracking-widest uppercase text-xs">Comunicando com Google Drive & Gemini AI...</p>
+            <p className="font-black text-primary tracking-widest uppercase text-xs">Analisando documento...</p>
           </div>
         )}
 
@@ -237,19 +288,19 @@ HEISHOP_COUNT: (total)` },
             <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
               <div>
                 <h1 className="text-3xl font-black text-text-main-light dark:text-text-main-dark">Analytics Dashboard</h1>
-                <p className="text-text-secondary-light italic">Selecione um relatório PDF para iniciar a análise determinística.</p>
+                <p className="text-text-secondary-light italic">Selecione um relatório PDF para iniciar a análise.</p>
               </div>
               <div className="flex flex-wrap gap-3">
                 <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept=".pdf" className="hidden" />
                 <button 
                   onClick={() => fileInputRef.current?.click()} 
-                  className="px-6 py-3 bg-white dark:bg-surface-dark border border-border-light dark:border-border-dark rounded-xl font-bold flex items-center gap-2 hover:border-primary hover:text-primary transition-all shadow-sm active:scale-95"
+                  className="px-6 py-3 bg-white dark:bg-surface-dark border border-border-light dark:border-border-dark rounded-xl font-bold flex items-center gap-2 hover:border-primary hover:text-primary transition-all shadow-sm"
                 >
                   <span className="material-symbols-outlined">upload_file</span> Local
                 </button>
                 <button 
                   onClick={syncDrive} 
-                  className="px-6 py-3 bg-primary text-background-dark rounded-xl font-bold hover:scale-105 active:scale-95 transition-all shadow-lg flex items-center gap-2"
+                  className="px-6 py-3 bg-primary text-background-dark rounded-xl font-bold hover:scale-105 transition-all shadow-lg flex items-center gap-2"
                 >
                   <span className="material-symbols-outlined">sync</span> Sincronizar Drive
                 </button>
