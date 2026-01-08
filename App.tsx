@@ -8,7 +8,6 @@ import Footer from './components/Footer';
 import { AppState, Report, Product, OrderOrigins } from './types';
 import { DriveService } from './services/driveService';
 import { MOCK_REPORTS } from './constants';
-import { GoogleGenAI } from "@google/genai";
 
 const App: React.FC = () => {
   const [state, setState] = useState<AppState>({
