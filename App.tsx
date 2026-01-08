@@ -46,16 +46,20 @@ const App: React.FC = () => {
    * Mantém a ordem exata das colunas: DESCRIÇÃO, REFERÊNCIA, CAIXA/UNID, VALOR TOTAL, PREÇO MÉDIO, UN VOLUME.
    */
   const extractPdfDataPipeline = async (file: File | Blob): Promise<{ products: Product[], origins: OrderOrigins }> => {
-const response = await fetch("/api/analisar-pdf", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({
-    base64Pdf: base64Data
-  })
-});
+const apiKey = process.env.API_KEY;
+    if (!apiKey) {
+      throw new Error("API_KEY não encontrada. Verifique as variáveis de ambiente.");
+    }
 
-const result = await response.json();
-const text = result.text; `Aja como um extrator de dados altamente preciso. 
+    const base64Data = await fileToBase64(file);
+    const ai = new GoogleGenAI({ apiKey });
+    
+    // Seguindo as diretrizes: model 'gemini-3-flash-preview' para tarefas de extração/resumo
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: {
+        parts: [
+          { text: `Aja como um extrator de dados altamente preciso. 
 Localize o bloco 'RESUMO FINAL' no PDF. 
 Para cada produto no bloco, extraia exatamente nesta ordem:
 1. Descrição (nome do produto)
