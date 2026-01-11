@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import Header from './components/Header';
 import ReportList from './components/ReportList';
@@ -8,7 +7,6 @@ import Footer from './components/Footer';
 import { AppState, Report, Product, OrderOrigins } from './types';
 import { DriveService } from './services/driveService';
 import { MOCK_REPORTS } from './constants';
-import { GoogleGenAI } from "@google/genai";
 
 const App: React.FC = () => {
   const [state, setState] = useState<AppState>({
@@ -30,7 +28,7 @@ const App: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   /**
-   * Helper: Conversão de arquivo para Base64 (necessário para o Gemini)
+   * Helper: Conversão de arquivo para Base64
    */
   const fileToBase64 = (file: File | Blob): Promise<string> => {
     return new Promise((resolve, reject) => {
@@ -42,77 +40,43 @@ const App: React.FC = () => {
   };
 
   /**
-   * PIPELINE ÚNICO: Extração Determinística de Dados
-   * Centraliza a lógica de análise do Gemini para Drive e Local.
-   * Mantém a ordem exata das colunas: DESCRIÇÃO, REFERÊNCIA, CAIXA/UNID, VALOR TOTAL, PREÇO MÉDIO, UN VOLUME.
+   * NOVA FUNÇÃO SEGURA: Chama a API do servidor
+   * A API Key fica protegida no backend
    */
   const extractPdfDataPipeline = async (file: File | Blob): Promise<{ products: Product[], origins: OrderOrigins }> => {
-    const apiKey = process.env.API_KEY;
-    if (!apiKey) {
-      throw new Error("API_KEY não encontrada. Verifique as variáveis de ambiente.");
-    }
-
+    console.log('📤 Convertendo arquivo para base64...');
     const base64Data = await fileToBase64(file);
-    const ai = new GoogleGenAI({ apiKey });
     
-    // Seguindo as diretrizes: model 'gemini-3-flash-preview' para tarefas de extração/resumo
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: {
-        parts: [
-          { text: `Aja como um extrator de dados altamente preciso. 
-Localize o bloco 'RESUMO FINAL' no PDF. 
-Para cada produto no bloco, extraia exatamente nesta ordem:
-1. Descrição (nome do produto)
-2. Referência (ex: CX-24, UN-1)
-3. Caixa/Unid (quantidade)
-4. Valor Total (monetário)
-5. Preço Médio (monetário)
-6. Un Volume (valor decimal)
-
-Também extraia as contagens de origens:
-- SFA_COUNT: ocorrências de "Origem: R = SFA via portal"
-- HEISHOP_COUNT: ocorrências de "Origem: G = Pedido Heishop (B2B)"
-
-Formate a resposta como JSON estrito:
-{
-  "products": [
-    {
-      "descricao": "...",
-      "referencia": "...",
-      "caixa_unid": "...",
-      "valor_total": "...",
-      "preco_medio": "...",
-      "un_volume": "..."
-    }
-  ],
-  "sfa_count": 0,
-  "heishop_count": 0
-}` },
-          { inlineData: { data: base64Data, mimeType: 'application/pdf' } }
-        ]
-      }
+    console.log('📡 Enviando para API do servidor...');
+    const response = await fetch('/api/analyze', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        base64Data,
+        fileName: file instanceof File ? file.name : 'documento.pdf'
+      })
     });
 
-    try {
-      // O SDK Gemini retorna a resposta em .text
-      const text = response.text;
-      const jsonStr = text.substring(text.indexOf('{'), text.lastIndexOf('}') + 1);
-      const data = JSON.parse(jsonStr);
-
-      return {
-        products: data.products || [],
-        origins: {
-          sfa_via_portal: data.sfa_count || 0,
-          heishop_b2b: data.heishop_count || 0,
-          total_pedidos: (data.sfa_count || 0) + (data.heishop_count || 0)
-        }
-      };
-    } catch (e) {
-      console.error("Falha no parse do JSON da IA, tentando fallback manual:", e);
-      // Fallback para o método de linhas caso a IA falhe em retornar JSON limpo
-      return fallbackExtraction(response.text);
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Erro ao chamar API de análise');
     }
+
+    const data = await response.json();
+    console.log('✅ Resposta recebida da API');
+    
+    // Se tiver rawText, significa que o JSON falhou, usar fallback
+    if (data.rawText) {
+      console.warn('⚠️ JSON parse falhou no servidor, usando fallback...');
+      return fallbackExtraction(data.rawText);
+    }
+
+    return {
+      products: data.products || [],
+      origins: data.origins || { sfa_via_portal: 0, heishop_b2b: 0, total_pedidos: 0 }
+    };
   };
 
   /**
@@ -176,21 +140,25 @@ Formate a resposta como JSON estrito:
     setState(prev => ({ ...prev, isLoading: true, error: null }));
 
     try {
+      // Se já tiver produtos, apenas mostra
       if (report.products && report.products.length > 0) {
         setState(prev => ({ ...prev, selectedReportId: reportId, view: 'dashboard', isLoading: false }));
         return;
       }
 
+      // Obter arquivo (Drive ou Local)
       const fileBlob = report.source === 'drive' 
         ? await DriveService.downloadFile(report.id) 
         : report.file as File;
-          
+      
+      // Chamar pipeline de análise (agora via API segura)
       const { products, origins } = await extractPdfDataPipeline(fileBlob);
       
+      // Atualizar relatório com dados extraídos
       setReports(prev => prev.map(r => r.id === reportId ? { ...r, products, orderOrigins: origins } : r));
       setState(prev => ({ ...prev, selectedReportId: reportId, view: 'dashboard', isLoading: false }));
     } catch (err: any) {
-      console.error("Pipeline Error:", err);
+      console.error("❌ Pipeline Error:", err);
       setState(prev => ({ ...prev, isLoading: false, error: `Erro na análise: ${err.message}` }));
     }
   };
@@ -221,7 +189,7 @@ Formate a resposta como JSON estrito:
       setReports(prev => [newReport, ...prev]);
       setState(prev => ({ ...prev, selectedReportId: fileId, view: 'dashboard', isLoading: false }));
     } catch (err: any) {
-      console.error("Upload Error:", err);
+      console.error("❌ Upload Error:", err);
       setState(prev => ({ ...prev, isLoading: false, error: `Falha na importação: ${err.message}` }));
     }
     if (fileInputRef.current) fileInputRef.current.value = '';
@@ -233,7 +201,7 @@ Formate a resposta como JSON estrito:
       const driveFiles = await DriveService.listFiles();
       setReports(driveFiles);
     } catch (e: any) {
-      console.error('Sync Error:', e);
+      console.error('❌ Sync Error:', e);
       if (reports.length === 0) setReports(MOCK_REPORTS);
       setState(prev => ({ ...prev, error: `Erro na sincronização: ${e.message}` }));
     } finally {
