@@ -8,6 +8,7 @@ import Footer from './components/Footer';
 import { AppState, Report, Product, OrderOrigins } from './types';
 import { DriveService } from './services/driveService';
 import { MOCK_REPORTS } from './constants';
+import { GoogleGenAI } from "@google/genai";
 
 const App: React.FC = () => {
   const [state, setState] = useState<AppState>({
@@ -46,24 +47,52 @@ const App: React.FC = () => {
    * Mantém a ordem exata das colunas: DESCRIÇÃO, REFERÊNCIA, CAIXA/UNID, VALOR TOTAL, PREÇO MÉDIO, UN VOLUME.
    */
   const extractPdfDataPipeline = async (file: File | Blob): Promise<{ products: Product[], origins: OrderOrigins }> => {
-   const base64Data = await fileToBase64(file);
+    const apiKey = process.env.API_KEY;
+    if (!apiKey) {
+      throw new Error("API_KEY não encontrada. Verifique as variáveis de ambiente.");
+    }
 
-const response = await fetch("/api/analisar-pdf", {
-  method: "POST",
-  headers: {
-    "Content-Type": "application/json"
-  },
-  body: JSON.stringify({
-    base64Pdf: base64Data
-  })
-});
+    const base64Data = await fileToBase64(file);
+    const ai = new GoogleGenAI({ apiKey });
+    
+    // Seguindo as diretrizes: model 'gemini-3-flash-preview' para tarefas de extração/resumo
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: {
+        parts: [
+          { text: `Aja como um extrator de dados altamente preciso. 
+Localize o bloco 'RESUMO FINAL' no PDF. 
+Para cada produto no bloco, extraia exatamente nesta ordem:
+1. Descrição (nome do produto)
+2. Referência (ex: CX-24, UN-1)
+3. Caixa/Unid (quantidade)
+4. Valor Total (monetário)
+5. Preço Médio (monetário)
+6. Un Volume (valor decimal)
 
-if (!response.ok) {
-  throw new Error("Falha ao chamar a API de análise");
-}
+Também extraia as contagens de origens:
+- SFA_COUNT: ocorrências de "Origem: R = SFA via portal"
+- HEISHOP_COUNT: ocorrências de "Origem: G = Pedido Heishop (B2B)"
 
-const result = await response.json();
-const text = result.text;
+Formate a resposta como JSON estrito:
+{
+  "products": [
+    {
+      "descricao": "...",
+      "referencia": "...",
+      "caixa_unid": "...",
+      "valor_total": "...",
+      "preco_medio": "...",
+      "un_volume": "..."
+    }
+  ],
+  "sfa_count": 0,
+  "heishop_count": 0
+}` },
+          { inlineData: { data: base64Data, mimeType: 'application/pdf' } }
+        ]
+      }
+    });
 
     try {
       // O SDK Gemini retorna a resposta em .text
