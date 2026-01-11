@@ -1,54 +1,52 @@
 // api/analyze.js
-// Para projetos Vite/React (não Next.js)
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 
-import { GoogleGenerativeAI } from '@google/generative-ai';
-
-export default async function handler(req, res) {
-  // Permitir apenas POST
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Método não permitido' });
-  }
-
-  // Configurar CORS
+module.exports = async (req, res) => {
+  // Headers CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-  // Responder OPTIONS (preflight)
+  // Preflight
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
+  }
+
+  // Apenas POST
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Método não permitido' });
   }
 
   try {
     console.log('=== INICIANDO ANÁLISE ===');
 
-    // 1. Obter a API Key
+    // API Key
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
       console.error('❌ GEMINI_API_KEY não encontrada');
       return res.status(500).json({ 
-        error: 'API Key não configurada. Configure GEMINI_API_KEY no Vercel.' 
+        error: 'API Key não configurada. Adicione GEMINI_API_KEY no Vercel.' 
       });
     }
     console.log('✓ API Key encontrada');
 
-    // 2. Obter dados do request
+    // Dados
     const { base64Data, fileName } = req.body;
     
     if (!base64Data) {
       return res.status(400).json({ error: 'base64Data é obrigatório' });
     }
 
-    console.log('✓ Arquivo recebido:', fileName);
-    console.log('✓ Tamanho base64:', base64Data.length, 'caracteres');
+    console.log('✓ Arquivo:', fileName);
+    console.log('✓ Tamanho:', base64Data.length, 'chars');
 
-    // 3. Inicializar Gemini
+    // Gemini
     console.log('Inicializando Gemini...');
     const genAI = new GoogleGenerativeAI(apiKey);
     const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-    console.log('✓ Gemini inicializado');
+    console.log('✓ Gemini OK');
 
-    // 4. Prompt
+    // Prompt
     const prompt = `Aja como um extrator de dados altamente preciso. 
 Localize o bloco 'RESUMO FINAL' no PDF. 
 Para cada produto no bloco, extraia exatamente nesta ordem:
@@ -79,7 +77,7 @@ Formate a resposta como JSON estrito:
   "heishop_count": 0
 }`;
 
-    // 5. Gerar análise
+    // Análise
     console.log('Enviando para Gemini...');
     const result = await model.generateContent([
       {
@@ -93,9 +91,8 @@ Formate a resposta como JSON estrito:
 
     const text = result.response.text();
     console.log('✓ Resposta recebida');
-    console.log('Prévia:', text.substring(0, 150) + '...');
 
-    // 6. Parsear JSON
+    // Parse JSON
     try {
       const jsonStr = text.substring(text.indexOf('{'), text.lastIndexOf('}') + 1);
       const data = JSON.parse(jsonStr);
@@ -109,14 +106,11 @@ Formate a resposta como JSON estrito:
         }
       };
 
-      console.log('✓ Análise concluída com sucesso');
-      console.log('Produtos extraídos:', response.products.length);
-
+      console.log('✓ Sucesso! Produtos:', response.products.length);
       return res.status(200).json(response);
 
     } catch (parseError) {
-      console.error('⚠️ Erro ao parsear JSON:', parseError);
-      
+      console.error('⚠️ Erro parse:', parseError);
       return res.status(200).json({
         products: [],
         origins: { sfa_via_portal: 0, heishop_b2b: 0, total_pedidos: 0 },
@@ -125,12 +119,10 @@ Formate a resposta como JSON estrito:
     }
 
   } catch (error) {
-    console.error('❌ ERRO COMPLETO:', error);
-    console.error('Stack trace:', error.stack);
-    
+    console.error('❌ ERRO:', error);
     return res.status(500).json({ 
-      error: error.message || 'Erro ao processar análise',
-      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      error: error.message || 'Erro ao processar',
+      details: error.stack
     });
   }
-}
+};
