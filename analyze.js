@@ -9,13 +9,19 @@ module.exports = async (req, res) => {
 
   // Preflight
   if (req.method === 'OPTIONS') {
+    console.log('OPTIONS request recebido');
     return res.status(200).end();
   }
 
   // Apenas POST
   if (req.method !== 'POST') {
+    console.log('Método não permitido:', req.method);
     return res.status(405).json({ error: 'Método não permitido' });
   }
+
+  console.log('=== REQUEST RECEBIDO ===');
+  console.log('Method:', req.method);
+  console.log('Headers:', JSON.stringify(req.headers));
 
   try {
     console.log('=== INICIANDO ANÁLISE ===');
@@ -33,7 +39,14 @@ module.exports = async (req, res) => {
     // Dados
     const { base64Data, fileName } = req.body;
     
+    console.log('Body recebido:', {
+      hasBase64Data: !!base64Data,
+      fileName: fileName,
+      base64Length: base64Data?.length || 0
+    });
+    
     if (!base64Data) {
+      console.error('❌ base64Data não fornecido');
       return res.status(400).json({ error: 'base64Data é obrigatório' });
     }
 
