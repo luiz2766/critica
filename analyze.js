@@ -1,24 +1,33 @@
-// api/analyze.ts
-// Crie este arquivo na raiz do projeto: /api/analyze.ts
+// api/analyze.js
+// Para projetos Vite/React (não Next.js)
 
-import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+export default async function handler(req, res) {
   // Permitir apenas POST
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Método não permitido' });
   }
 
+  // Configurar CORS
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  // Responder OPTIONS (preflight)
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
   try {
     console.log('=== INICIANDO ANÁLISE ===');
 
-    // 1. Obter a API Key do ambiente (servidor)
+    // 1. Obter a API Key
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
-      console.error('❌ GEMINI_API_KEY não encontrada no servidor');
+      console.error('❌ GEMINI_API_KEY não encontrada');
       return res.status(500).json({ 
-        error: 'API Key não configurada no servidor. Configure GEMINI_API_KEY no Vercel.' 
+        error: 'API Key não configurada. Configure GEMINI_API_KEY no Vercel.' 
       });
     }
     console.log('✓ API Key encontrada');
@@ -39,7 +48,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
     console.log('✓ Gemini inicializado');
 
-    // 4. Preparar prompt
+    // 4. Prompt
     const prompt = `Aja como um extrator de dados altamente preciso. 
 Localize o bloco 'RESUMO FINAL' no PDF. 
 Para cada produto no bloco, extraia exatamente nesta ordem:
@@ -102,15 +111,12 @@ Formate a resposta como JSON estrito:
 
       console.log('✓ Análise concluída com sucesso');
       console.log('Produtos extraídos:', response.products.length);
-      console.log('Origens:', response.origins);
 
       return res.status(200).json(response);
 
     } catch (parseError) {
       console.error('⚠️ Erro ao parsear JSON:', parseError);
-      console.log('Retornando texto bruto para fallback...');
       
-      // Retornar texto bruto para o frontend processar
       return res.status(200).json({
         products: [],
         origins: { sfa_via_portal: 0, heishop_b2b: 0, total_pedidos: 0 },
@@ -118,7 +124,7 @@ Formate a resposta como JSON estrito:
       });
     }
 
-  } catch (error: any) {
+  } catch (error) {
     console.error('❌ ERRO COMPLETO:', error);
     console.error('Stack trace:', error.stack);
     
@@ -128,12 +134,3 @@ Formate a resposta como JSON estrito:
     });
   }
 }
-
-// Configuração para aumentar o limite de payload (se necessário)
-export const config = {
-  api: {
-    bodyParser: {
-      sizeLimit: '10mb',
-    },
-  },
-};
