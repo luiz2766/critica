@@ -2,26 +2,38 @@
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 module.exports = async (req, res) => {
-  // Headers CORS
+  console.log('=== REQUEST RECEBIDO ===');
+  console.log('Method:', req.method);
+  console.log('URL:', req.url);
+  
+  // CORS Headers - DEVE VIR ANTES DE QUALQUER RETURN
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
+  res.setHeader('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version');
 
-  // Preflight
+  // Handle preflight
   if (req.method === 'OPTIONS') {
-    console.log('OPTIONS request recebido');
+    console.log('✓ OPTIONS request - enviando 200');
     return res.status(200).end();
   }
 
-  // Apenas POST
-  if (req.method !== 'POST') {
-    console.log('Método não permitido:', req.method);
-    return res.status(405).json({ error: 'Método não permitido' });
+  // Aceitar GET e POST (para debug)
+  if (req.method === 'GET') {
+    console.log('✓ GET request - API está funcionando');
+    return res.status(200).json({ 
+      message: 'API funcionando! Use POST para analisar PDFs.',
+      status: 'online'
+    });
   }
 
-  console.log('=== REQUEST RECEBIDO ===');
-  console.log('Method:', req.method);
-  console.log('Headers:', JSON.stringify(req.headers));
+  if (req.method !== 'POST') {
+    console.log('❌ Método não permitido:', req.method);
+    return res.status(405).json({ 
+      error: 'Método não permitido. Use POST.',
+      method: req.method 
+    });
+  }
 
   try {
     console.log('=== INICIANDO ANÁLISE ===');
@@ -31,13 +43,23 @@ module.exports = async (req, res) => {
     if (!apiKey) {
       console.error('❌ GEMINI_API_KEY não encontrada');
       return res.status(500).json({ 
-        error: 'API Key não configurada. Adicione GEMINI_API_KEY no Vercel.' 
+        error: 'API Key não configurada. Adicione GEMINI_API_KEY no Vercel.',
+        hint: 'Vá em: Vercel Dashboard → Settings → Environment Variables'
       });
     }
     console.log('✓ API Key encontrada');
 
-    // Dados
-    const { base64Data, fileName } = req.body;
+    // Parse body
+    let body;
+    try {
+      body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+      console.log('✓ Body parseado');
+    } catch (e) {
+      console.error('❌ Erro ao parsear body:', e);
+      return res.status(400).json({ error: 'Body inválido. Use JSON.' });
+    }
+
+    const { base64Data, fileName } = body;
     
     console.log('Body recebido:', {
       hasBase64Data: !!base64Data,
@@ -47,17 +69,26 @@ module.exports = async (req, res) => {
     
     if (!base64Data) {
       console.error('❌ base64Data não fornecido');
-      return res.status(400).json({ error: 'base64Data é obrigatório' });
+      return res.status(400).json({ 
+        error: 'base64Data é obrigatório',
+        received: Object.keys(body)
+      });
     }
 
     console.log('✓ Arquivo:', fileName);
     console.log('✓ Tamanho:', base64Data.length, 'chars');
 
+    // Validar se é base64 válido
+    if (!/^[A-Za-z0-9+/]*={0,2}$/.test(base64Data.substring(0, 100))) {
+      console.error('❌ base64Data inválido');
+      return res.status(400).json({ error: 'base64Data não é base64 válido' });
+    }
+
     // Gemini
     console.log('Inicializando Gemini...');
     const genAI = new GoogleGenerativeAI(apiKey);
     const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-    console.log('✓ Gemini OK');
+    console.log('✓ Gemini inicializado');
 
     // Prompt
     const prompt = `Aja como um extrator de dados altamente preciso. 
@@ -103,7 +134,8 @@ Formate a resposta como JSON estrito:
     ]);
 
     const text = result.response.text();
-    console.log('✓ Resposta recebida');
+    console.log('✓ Resposta recebida do Gemini');
+    console.log('Prévia:', text.substring(0, 100) + '...');
 
     // Parse JSON
     try {
@@ -123,7 +155,8 @@ Formate a resposta como JSON estrito:
       return res.status(200).json(response);
 
     } catch (parseError) {
-      console.error('⚠️ Erro parse:', parseError);
+      console.error('⚠️ Erro ao parsear JSON do Gemini:', parseError);
+      console.log('Retornando rawText para fallback...');
       return res.status(200).json({
         products: [],
         origins: { sfa_via_portal: 0, heishop_b2b: 0, total_pedidos: 0 },
@@ -132,10 +165,13 @@ Formate a resposta como JSON estrito:
     }
 
   } catch (error) {
-    console.error('❌ ERRO:', error);
+    console.error('❌ ERRO COMPLETO:', error);
+    console.error('Stack:', error.stack);
+    
     return res.status(500).json({ 
-      error: error.message || 'Erro ao processar',
-      details: error.stack
+      error: error.message || 'Erro ao processar análise',
+      type: error.constructor.name,
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
 };
