@@ -48,6 +48,8 @@ const App: React.FC = () => {
     const base64Data = await fileToBase64(file);
     
     console.log('📡 Enviando para API do servidor...');
+    console.log('📊 Tamanho do arquivo:', base64Data.length, 'caracteres');
+    
     const response = await fetch('/api/analyze', {
       method: 'POST',
       headers: {
@@ -59,13 +61,34 @@ const App: React.FC = () => {
       })
     });
 
+    console.log('📡 Status da resposta:', response.status);
+    console.log('📡 Headers:', response.headers.get('content-type'));
+
+    // Pegar o texto bruto primeiro
+    const responseText = await response.text();
+    console.log('📄 Resposta bruta (primeiros 200 chars):', responseText.substring(0, 200));
+
     if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error || 'Erro ao chamar API de análise');
+      let errorMsg = 'Erro ao chamar API de análise';
+      try {
+        const errorData = JSON.parse(responseText);
+        errorMsg = errorData.error || errorMsg;
+      } catch (e) {
+        errorMsg = `Erro ${response.status}: ${responseText.substring(0, 100)}`;
+      }
+      throw new Error(errorMsg);
     }
 
-    const data = await response.json();
-    console.log('✅ Resposta recebida da API');
+    // Tentar parsear o JSON
+    let data;
+    try {
+      data = JSON.parse(responseText);
+      console.log('✅ JSON parseado com sucesso');
+    } catch (e) {
+      console.error('❌ Erro ao parsear JSON:', e);
+      console.error('Resposta completa:', responseText);
+      throw new Error('Resposta da API não é um JSON válido. Verifique os logs do Vercel.');
+    }
     
     // Se tiver rawText, significa que o JSON falhou, usar fallback
     if (data.rawText) {
